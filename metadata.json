@@ -1,0 +1,6 @@
+{
+  "name": "CECILE — NEXUS ERP",
+  "description": "NEXUS ERP (Projet CECILE) — Système intégré de gestion d'entreprise modulaire : Administration, CRM, Ventes, Achats, Stocks, Comptabilité OHADA, Trésorerie, RH et Analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

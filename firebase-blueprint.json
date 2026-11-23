@@ -1,0 +1,720 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Profil utilisateur authentifié lié à Firebase Auth.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "defaultCompanyId": { "type": "string", "maxLength": 128 },
+        "language": { "type": "string", "enum": ["fr", "en"], "maxLength": 10 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Entreprise / Entité juridique isolée dans NEXUS ERP.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "legalForm": { "type": "string", "maxLength": 60 },
+        "taxId": { "type": "string", "maxLength": 80 },
+        "rccm": { "type": "string", "maxLength": 80 },
+        "currency": { "type": "string", "enum": ["XAF", "XOF", "EUR", "USD"], "maxLength": 10 },
+        "accountingStandard": { "type": "string", "enum": ["OHADA", "GENERAL"], "maxLength": 20 },
+        "address": { "type": "string", "maxLength": 250 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 160 },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "currency", "accountingStandard", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "CompanyMember": {
+      "title": "CompanyMember",
+      "description": "Membre d'une entreprise avec rôle RBAC et permissions modulaires.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "roleCode": { "type": "string", "enum": ["admin", "direction", "commercial", "comptable", "magasinier", "rh", "lecture"], "maxLength": 30 },
+        "departmentName": { "type": "string", "maxLength": 100 },
+        "allowedModules": { "type": "array" },
+        "canWrite": { "type": "boolean" },
+        "canValidate": { "type": "boolean" },
+        "canDelete": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "roleCode", "allowedModules", "canWrite", "canValidate", "canDelete", "active", "ownerId", "memberUids", "createdAt", "updatedAt"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Département organisationnel de l'entreprise.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "managerName": { "type": "string", "maxLength": 120 },
+        "budget": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "RoleDefinition": {
+      "title": "RoleDefinition",
+      "description": "Définition personnalisable d'un rôle et de ses droits d'accès.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 300 },
+        "allowedModules": { "type": "array" },
+        "canWrite": { "type": "boolean" },
+        "canValidate": { "type": "boolean" },
+        "canDelete": { "type": "boolean" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "allowedModules", "canWrite", "canValidate", "canDelete", "ownerId", "memberUids", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Journal immuable des opérations sensibles.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 200 },
+        "action": { "type": "string", "maxLength": 60 },
+        "module": { "type": "string", "maxLength": 60 },
+        "entityType": { "type": "string", "maxLength": 60 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "summary": { "type": "string", "maxLength": 500 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "action", "module", "summary", "ownerId", "memberUids", "createdAt"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Prospect commercial CRM.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "companyName": { "type": "string", "maxLength": 160 },
+        "email": { "type": "string", "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "source": { "type": "string", "maxLength": 60 },
+        "status": { "type": "string", "enum": ["nouveau", "contacte", "qualifie", "converti", "perdu"] },
+        "estimatedValue": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "status", "estimatedValue", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Fiche client CRM et facturation.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 40 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "segment": { "type": "string", "enum": ["B2B", "B2C", "Administration"] },
+        "email": { "type": "string", "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "address": { "type": "string", "maxLength": 250 },
+        "taxId": { "type": "string", "maxLength": 80 },
+        "creditLimit": { "type": "number" },
+        "balanceDue": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "segment", "balanceDue", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Opportunity": {
+      "title": "Opportunity",
+      "description": "Opportunité du pipeline commercial.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "stage": { "type": "string", "enum": ["prospection", "qualification", "proposition", "negociation", "gagnee", "perdue"] },
+        "amount": { "type": "number" },
+        "probability": { "type": "number" },
+        "expectedCloseDate": { "type": "string", "maxLength": 30 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "stage", "amount", "probability", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Interaction": {
+      "title": "Interaction",
+      "description": "Historique des échanges clients et prospects.",
+      "type": "object",
+      "properties": {
+        "entityType": { "type": "string", "enum": ["lead", "customer", "opportunity"] },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "entityName": { "type": "string", "maxLength": 160 },
+        "channel": { "type": "string", "enum": ["appel", "email", "reunion", "note"] },
+        "summary": { "type": "string", "maxLength": 800 },
+        "date": { "type": "string", "maxLength": 30 },
+        "authorEmail": { "type": "string", "maxLength": 200 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["entityType", "entityId", "channel", "summary", "date", "ownerId", "memberUids", "isDemo", "createdAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Catégorie d'articles.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 300 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Warehouse": {
+      "title": "Warehouse",
+      "description": "Entrepôt physique de stockage.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "location": { "type": "string", "maxLength": 200 },
+        "managerName": { "type": "string", "maxLength": 120 },
+        "isDefault": { "type": "boolean" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Article géré en stock et facturation.",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "categoryName": { "type": "string", "maxLength": 120 },
+        "unit": { "type": "string", "maxLength": 30 },
+        "purchasePrice": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "taxRate": { "type": "number" },
+        "stockQty": { "type": "number" },
+        "minStock": { "type": "number" },
+        "warehouseStocks": { "type": "object" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sku", "name", "purchasePrice", "salePrice", "stockQty", "minStock", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Mouvement traçable d'entrée, sortie, transfert ou inventaire.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 160 },
+        "sku": { "type": "string", "maxLength": 50 },
+        "warehouseId": { "type": "string", "maxLength": 128 },
+        "warehouseName": { "type": "string", "maxLength": 120 },
+        "toWarehouseId": { "type": "string", "maxLength": 128 },
+        "toWarehouseName": { "type": "string", "maxLength": 120 },
+        "type": { "type": "string", "enum": ["entree", "sortie", "transfert", "inventaire"] },
+        "quantity": { "type": "number" },
+        "unitCost": { "type": "number" },
+        "totalValue": { "type": "number" },
+        "referenceNumber": { "type": "string", "maxLength": 80 },
+        "date": { "type": "string", "maxLength": 30 },
+        "authorEmail": { "type": "string", "maxLength": 200 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "productName", "warehouseId", "type", "quantity", "totalValue", "date", "ownerId", "memberUids", "isDemo", "createdAt"]
+    },
+    "Quote": {
+      "title": "Quote",
+      "description": "Devis client.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "date": { "type": "string", "maxLength": 30 },
+        "validUntil": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["brouillon", "envoye", "accepte", "refuse", "converti"] },
+        "lines": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discountTotal": { "type": "number" },
+        "taxTotal": { "type": "number" },
+        "total": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "customerId", "customerName", "date", "status", "lines", "total", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "SalesOrder": {
+      "title": "SalesOrder",
+      "description": "Commande client validée avec impact stock.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "warehouseId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["brouillon", "validee", "livree", "facturee", "annulee"] },
+        "lines": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discountTotal": { "type": "number" },
+        "taxTotal": { "type": "number" },
+        "total": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "customerId", "customerName", "warehouseId", "date", "status", "lines", "total", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Facture client avec suivi comptable et paiements.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "date": { "type": "string", "maxLength": 30 },
+        "dueDate": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["brouillon", "emise", "partielle", "payee", "en_retard", "annulee"] },
+        "lines": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discountTotal": { "type": "number" },
+        "taxTotal": { "type": "number" },
+        "total": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "balanceDue": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "customerId", "customerName", "date", "status", "lines", "total", "paidAmount", "balanceDue", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Fiche fournisseur.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 40 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "email": { "type": "string", "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "address": { "type": "string", "maxLength": 250 },
+        "taxId": { "type": "string", "maxLength": 80 },
+        "paymentTerms": { "type": "string", "maxLength": 60 },
+        "balancePayable": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "balancePayable", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "PurchaseRequest": {
+      "title": "PurchaseRequest",
+      "description": "Demande d'achat interne.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "requesterName": { "type": "string", "maxLength": 120 },
+        "departmentName": { "type": "string", "maxLength": 120 },
+        "date": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["en_attente", "approuvee", "rejetee", "commandee"] },
+        "lines": { "type": "array" },
+        "estimatedTotal": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "requesterName", "date", "status", "lines", "estimatedTotal", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "PurchaseOrder": {
+      "title": "PurchaseOrder",
+      "description": "Commande fournisseur.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "supplierId": { "type": "string", "maxLength": 128 },
+        "supplierName": { "type": "string", "maxLength": 160 },
+        "warehouseId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["brouillon", "envoyee", "receptionnee", "facturee", "annulee"] },
+        "lines": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "taxTotal": { "type": "number" },
+        "total": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "supplierId", "supplierName", "warehouseId", "date", "status", "lines", "total", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "SupplierInvoice": {
+      "title": "SupplierInvoice",
+      "description": "Facture fournisseur.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "supplierId": { "type": "string", "maxLength": 128 },
+        "supplierName": { "type": "string", "maxLength": 160 },
+        "date": { "type": "string", "maxLength": 30 },
+        "dueDate": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["en_attente", "partielle", "payee"] },
+        "total": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "balanceDue": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "supplierId", "supplierName", "date", "status", "total", "paidAmount", "balanceDue", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Account": {
+      "title": "Account",
+      "description": "Compte du plan comptable (OHADA ou Général).",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 2, "maxLength": 20 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "classNumber": { "type": "number" },
+        "type": { "type": "string", "enum": ["actif", "passif", "charge", "produit"] },
+        "balanceDebit": { "type": "number" },
+        "balanceCredit": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "classNumber", "type", "balanceDebit", "balanceCredit", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "Écriture comptable équilibrée (partie double).",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "date": { "type": "string", "maxLength": 30 },
+        "journalCode": { "type": "string", "enum": ["VE", "AC", "BQ", "CA", "OD"] },
+        "label": { "type": "string", "maxLength": 240 },
+        "lines": { "type": "array" },
+        "totalDebit": { "type": "number" },
+        "totalCredit": { "type": "number" },
+        "sourceModule": { "type": "string", "maxLength": 60 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "date", "journalCode", "label", "lines", "totalDebit", "totalCredit", "ownerId", "memberUids", "isDemo", "createdAt"]
+    },
+    "TreasuryAccount": {
+      "title": "TreasuryAccount",
+      "description": "Compte bancaire ou caisse de trésorerie.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "type": { "type": "string", "enum": ["banque", "caisse"] },
+        "bankName": { "type": "string", "maxLength": 120 },
+        "iban": { "type": "string", "maxLength": 80 },
+        "accountCode": { "type": "string", "maxLength": 20 },
+        "balance": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "type", "accountCode", "balance", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Mouvement de trésorerie (encaissement ou décaissement).",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string", "maxLength": 60 },
+        "direction": { "type": "string", "enum": ["encaissement", "decaissement"] },
+        "partnerType": { "type": "string", "enum": ["client", "fournisseur", "autre"] },
+        "partnerName": { "type": "string", "maxLength": 160 },
+        "treasuryAccountId": { "type": "string", "maxLength": 128 },
+        "treasuryAccountName": { "type": "string", "maxLength": 140 },
+        "method": { "type": "string", "enum": ["virement", "especes", "cheque", "mobile_money"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "maxLength": 30 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["number", "direction", "partnerType", "partnerName", "treasuryAccountId", "method", "amount", "date", "ownerId", "memberUids", "isDemo", "createdAt"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Dossier salarié RH.",
+      "type": "object",
+      "properties": {
+        "matricule": { "type": "string", "maxLength": 40 },
+        "firstName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "lastName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "email": { "type": "string", "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "departmentName": { "type": "string", "maxLength": 120 },
+        "position": { "type": "string", "maxLength": 120 },
+        "contractType": { "type": "string", "enum": ["CDI", "CDD", "Stage", "Consultant"] },
+        "hireDate": { "type": "string", "maxLength": 30 },
+        "baseSalary": { "type": "number" },
+        "status": { "type": "string", "enum": ["actif", "en_conge", "suspendu", "sorti"] },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["matricule", "firstName", "lastName", "departmentName", "position", "contractType", "baseSalary", "status", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "LeaveRequest": {
+      "title": "LeaveRequest",
+      "description": "Demande de congé ou absence RH.",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "employeeName": { "type": "string", "maxLength": 160 },
+        "type": { "type": "string", "enum": ["conge_paye", "maladie", "absence", "exceptionnel"] },
+        "startDate": { "type": "string", "maxLength": 30 },
+        "endDate": { "type": "string", "maxLength": 30 },
+        "days": { "type": "number" },
+        "status": { "type": "string", "enum": ["en_attente", "approuve", "refuse"] },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "employeeName", "type", "startDate", "endDate", "days", "status", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "Payroll": {
+      "title": "Payroll",
+      "description": "Bulletin de paie mensuel.",
+      "type": "object",
+      "properties": {
+        "period": { "type": "string", "maxLength": 20 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "employeeName": { "type": "string", "maxLength": 160 },
+        "departmentName": { "type": "string", "maxLength": 120 },
+        "baseSalary": { "type": "number" },
+        "bonuses": { "type": "number" },
+        "deductions": { "type": "number" },
+        "netSalary": { "type": "number" },
+        "status": { "type": "string", "enum": ["brouillon", "validee", "payee"] },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["period", "employeeId", "employeeName", "baseSalary", "netSalary", "status", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "Notification métier en temps réel.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 140 },
+        "message": { "type": "string", "maxLength": 400 },
+        "severity": { "type": "string", "enum": ["info", "warning", "success", "error"] },
+        "module": { "type": "string", "maxLength": 60 },
+        "read": { "type": "boolean" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "message", "severity", "module", "read", "ownerId", "memberUids", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Profils privés des utilisateurs authentifiés."
+    },
+    "/companies/{companyId}": {
+      "schema": { "$ref": "#/entities/Company" },
+      "description": "Sociétés isolées multi-entreprises."
+    },
+    "/companies/{companyId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/CompanyMember" },
+      "description": "Membres et permissions RBAC de la société."
+    },
+    "/companies/{companyId}/departments/{deptId}": {
+      "schema": { "$ref": "#/entities/Department" },
+      "description": "Départements internes."
+    },
+    "/companies/{companyId}/roles/{roleId}": {
+      "schema": { "$ref": "#/entities/RoleDefinition" },
+      "description": "Rôles configurables de la société."
+    },
+    "/companies/{companyId}/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Journal d'audit immuable."
+    },
+    "/companies/{companyId}/leads/{leadId}": {
+      "schema": { "$ref": "#/entities/Lead" },
+      "description": "Prospects CRM."
+    },
+    "/companies/{companyId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Clients CRM et facturation."
+    },
+    "/companies/{companyId}/opportunities/{oppId}": {
+      "schema": { "$ref": "#/entities/Opportunity" },
+      "description": "Opportunités commerciales."
+    },
+    "/companies/{companyId}/interactions/{interactionId}": {
+      "schema": { "$ref": "#/entities/Interaction" },
+      "description": "Historique des interactions CRM."
+    },
+    "/companies/{companyId}/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Catégories de produits."
+    },
+    "/companies/{companyId}/warehouses/{warehouseId}": {
+      "schema": { "$ref": "#/entities/Warehouse" },
+      "description": "Entrepôts de stockage."
+    },
+    "/companies/{companyId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Produits et niveaux de stock."
+    },
+    "/companies/{companyId}/stockMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/StockMovement" },
+      "description": "Historique des mouvements de stock."
+    },
+    "/companies/{companyId}/quotes/{quoteId}": {
+      "schema": { "$ref": "#/entities/Quote" },
+      "description": "Devis clients."
+    },
+    "/companies/{companyId}/salesOrders/{orderId}": {
+      "schema": { "$ref": "#/entities/SalesOrder" },
+      "description": "Commandes clients."
+    },
+    "/companies/{companyId}/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "Factures clients."
+    },
+    "/companies/{companyId}/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Fournisseurs."
+    },
+    "/companies/{companyId}/purchaseRequests/{reqId}": {
+      "schema": { "$ref": "#/entities/PurchaseRequest" },
+      "description": "Demandes d'achat."
+    },
+    "/companies/{companyId}/purchaseOrders/{poId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrder" },
+      "description": "Commandes fournisseurs."
+    },
+    "/companies/{companyId}/supplierInvoices/{sinvId}": {
+      "schema": { "$ref": "#/entities/SupplierInvoice" },
+      "description": "Factures fournisseurs."
+    },
+    "/companies/{companyId}/accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/Account" },
+      "description": "Plan comptable OHADA."
+    },
+    "/companies/{companyId}/journalEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/JournalEntry" },
+      "description": "Écritures du journal comptable."
+    },
+    "/companies/{companyId}/treasuryAccounts/{accountId}": {
+      "schema": { "$ref": "#/entities/TreasuryAccount" },
+      "description": "Comptes bancaires et caisses."
+    },
+    "/companies/{companyId}/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Encaissements et décaissements."
+    },
+    "/companies/{companyId}/employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/Employee" },
+      "description": "Dossiers du personnel RH."
+    },
+    "/companies/{companyId}/leaves/{leaveId}": {
+      "schema": { "$ref": "#/entities/LeaveRequest" },
+      "description": "Demandes de congés et absences."
+    },
+    "/companies/{companyId}/payrolls/{payrollId}": {
+      "schema": { "$ref": "#/entities/Payroll" },
+      "description": "Bulletins de paie."
+    },
+    "/companies/{companyId}/notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/NotificationItem" },
+      "description": "Alertes et notifications internes."
+    }
+  }
+}

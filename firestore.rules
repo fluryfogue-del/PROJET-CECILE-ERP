@@ -1,0 +1,1036 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Security Primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isGlobalAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'fluryfogue@gmail.com';
+    }
+
+    function isCompanyOwner(companyId) {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/companies/$(companyId)) &&
+        get(/databases/$(database)/documents/companies/$(companyId)).data.ownerId == request.auth.uid;
+    }
+
+    function isCompanyMember(companyId) {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/companies/$(companyId)) &&
+        (
+          request.auth.uid in get(/databases/$(database)/documents/companies/$(companyId)).data.memberUids ||
+          get(/databases/$(database)/documents/companies/$(companyId)).data.ownerId == request.auth.uid
+        );
+    }
+
+    function hasActiveMemberRecord(companyId) {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    function isCompanyAdmin(companyId) {
+      return isCompanyOwner(companyId) ||
+        isGlobalAdmin() ||
+        (hasActiveMemberRecord(companyId) &&
+         get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.roleCode == 'admin');
+    }
+
+    function canCompanyWrite(companyId) {
+      return isCompanyOwner(companyId) ||
+        isGlobalAdmin() ||
+        (hasActiveMemberRecord(companyId) &&
+         get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.canWrite == true);
+    }
+
+    function canCompanyDelete(companyId) {
+      return isCompanyOwner(companyId) ||
+        isGlobalAdmin() ||
+        (hasActiveMemberRecord(companyId) &&
+         get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.canDelete == true);
+    }
+
+    function isValidMemberList(listVal) {
+      return listVal is list && listVal.size() >= 1 && listVal.size() <= 50 && listVal[0] is string;
+    }
+
+    function isValidLinesList(listVal) {
+      return listVal is list && listVal.size() >= 1 && listVal.size() <= 50;
+    }
+
+    // Health check document for connection validation
+    match /test/connection {
+      allow get: if isSignedIn();
+      allow list, write: if false;
+    }
+
+    // 3. Users (PII isolated strictly to owner)
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'defaultCompanyId', 'language', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        (!('defaultCompanyId' in data) || (data.defaultCompanyId is string && data.defaultCompanyId.size() <= 128)) &&
+        (!('language' in data) || (data.language in ['fr', 'en'])) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isGlobalAdmin());
+      allow list: if false;
+      allow create: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUserProfile(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'defaultCompanyId', 'language', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // 4. Companies (Multi-company root tenant)
+    function isValidCompany(data) {
+      return data.keys().hasAll(['name', 'currency', 'accountingStandard', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['name', 'legalForm', 'taxId', 'rccm', 'currency', 'accountingStandard', 'address', 'phone', 'email', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 160 &&
+        (!('legalForm' in data) || (data.legalForm is string && data.legalForm.size() <= 60)) &&
+        (!('taxId' in data) || (data.taxId is string && data.taxId.size() <= 80)) &&
+        (!('rccm' in data) || (data.rccm is string && data.rccm.size() <= 80)) &&
+        data.currency in ['XAF', 'XOF', 'EUR', 'USD'] &&
+        data.accountingStandard in ['OHADA', 'GENERAL'] &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.ownerId in data.memberUids &&
+        data.isDemo is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /companies/{companyId} {
+      allow get: if isVerifiedUser() && isValidId(companyId) &&
+        (request.auth.uid in existing().memberUids || existing().ownerId == request.auth.uid || isGlobalAdmin());
+      allow list: if isVerifiedUser() &&
+        (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+      allow create: if isVerifiedUser() && isValidId(companyId) &&
+        isValidCompany(incoming()) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(companyId) &&
+        isValidCompany(incoming()) &&
+        (existing().ownerId == request.auth.uid || isGlobalAdmin()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'legalForm', 'taxId', 'rccm', 'currency', 'accountingStandard', 'address', 'phone', 'email', 'memberUids', 'isDemo', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(companyId) &&
+        (existing().ownerId == request.auth.uid || isGlobalAdmin());
+
+      // 4.1 Company Members (RBAC)
+      function isValidMember(data) {
+        return data.keys().hasAll(['uid', 'email', 'displayName', 'roleCode', 'allowedModules', 'canWrite', 'canValidate', 'canDelete', 'active', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['uid', 'email', 'displayName', 'roleCode', 'departmentName', 'allowedModules', 'canWrite', 'canValidate', 'canDelete', 'active', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+          data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+          data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+          data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+          data.roleCode in ['admin', 'direction', 'commercial', 'comptable', 'magasinier', 'rh', 'lecture'] &&
+          (!('departmentName' in data) || (data.departmentName is string && data.departmentName.size() <= 100)) &&
+          data.allowedModules is list && data.allowedModules.size() >= 1 && data.allowedModules.size() <= 20 && data.allowedModules[0] is string &&
+          data.canWrite is bool &&
+          data.canValidate is bool &&
+          data.canDelete is bool &&
+          data.active is bool &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.createdAt is timestamp &&
+          data.updatedAt is timestamp;
+      }
+
+      match /members/{memberId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(memberId) &&
+          (request.auth.uid == memberId || isCompanyMember(companyId));
+        allow list: if isVerifiedUser() &&
+          (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(memberId) &&
+          isValidMember(incoming()) &&
+          incoming().uid == memberId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          (isCompanyAdmin(companyId) || (isCompanyOwner(companyId) && memberId == request.auth.uid));
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(memberId) &&
+          isValidMember(incoming()) &&
+          isCompanyAdmin(companyId) &&
+          incoming().uid == existing().uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'roleCode', 'departmentName', 'allowedModules', 'canWrite', 'canValidate', 'canDelete', 'active', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(memberId) &&
+          isCompanyAdmin(companyId) && memberId != existing().ownerId;
+      }
+
+      // 4.2 Departments
+      function isValidDepartment(data) {
+        return data.keys().hasAll(['code', 'name', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'managerName', 'budget', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 1 && data.code.size() <= 30 &&
+          data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+          (!('managerName' in data) || (data.managerName is string && data.managerName.size() <= 120)) &&
+          (!('budget' in data) || (data.budget is number && data.budget >= 0)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp &&
+          data.updatedAt is timestamp;
+      }
+
+      match /departments/{deptId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(deptId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(deptId) &&
+          isValidDepartment(incoming()) && isCompanyAdmin(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(deptId) &&
+          isValidDepartment(incoming()) && isCompanyAdmin(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'managerName', 'budget', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(deptId) && isCompanyAdmin(companyId);
+      }
+
+      // 4.3 Role Definitions
+      function isValidRole(data) {
+        return data.keys().hasAll(['code', 'name', 'allowedModules', 'canWrite', 'canValidate', 'canDelete', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'description', 'allowedModules', 'canWrite', 'canValidate', 'canDelete', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 2 && data.code.size() <= 40 &&
+          data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+          (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
+          data.allowedModules is list && data.allowedModules.size() >= 1 && data.allowedModules.size() <= 20 && data.allowedModules[0] is string &&
+          data.canWrite is bool && data.canValidate is bool && data.canDelete is bool &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /roles/{roleId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(roleId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(roleId) &&
+          isValidRole(incoming()) && isCompanyAdmin(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(roleId) &&
+          isValidRole(incoming()) && isCompanyAdmin(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'allowedModules', 'canWrite', 'canValidate', 'canDelete', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(roleId) && isCompanyAdmin(companyId);
+      }
+
+      // 4.4 Immutable Audit Logs
+      function isValidAuditLog(data) {
+        return data.keys().hasAll(['userId', 'userEmail', 'action', 'module', 'summary', 'ownerId', 'memberUids', 'createdAt']) &&
+          data.keys().hasOnly(['userId', 'userEmail', 'action', 'module', 'entityType', 'entityId', 'summary', 'ownerId', 'memberUids', 'createdAt']) &&
+          data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+          data.userEmail is string && data.userEmail.size() <= 200 &&
+          data.action is string && data.action.size() >= 1 && data.action.size() <= 60 &&
+          data.module is string && data.module.size() >= 1 && data.module.size() <= 60 &&
+          (!('entityType' in data) || (data.entityType is string && data.entityType.size() <= 60)) &&
+          (!('entityId' in data) || (data.entityId is string && data.entityId.size() <= 128)) &&
+          data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 500 &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.createdAt is timestamp;
+      }
+
+      match /auditLogs/{logId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(logId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(logId) &&
+          isValidAuditLog(incoming()) && isCompanyMember(companyId) &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(logId) && isCompanyOwner(companyId);
+      }
+
+      // 4.5 CRM: Leads
+      function isValidLead(data) {
+        return data.keys().hasAll(['name', 'status', 'estimatedValue', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['name', 'companyName', 'email', 'phone', 'source', 'status', 'estimatedValue', 'notes', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
+          (!('companyName' in data) || (data.companyName is string && data.companyName.size() <= 160)) &&
+          (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+          (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+          (!('source' in data) || (data.source is string && data.source.size() <= 60)) &&
+          data.status in ['nouveau', 'contacte', 'qualifie', 'converti', 'perdu'] &&
+          data.estimatedValue is number && data.estimatedValue >= 0 &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /leads/{leadId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(leadId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(leadId) &&
+          isValidLead(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(leadId) &&
+          isValidLead(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'companyName', 'email', 'phone', 'source', 'status', 'estimatedValue', 'notes', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(leadId) && canCompanyDelete(companyId);
+      }
+
+      // 4.6 CRM: Customers
+      function isValidCustomer(data) {
+        return data.keys().hasAll(['code', 'name', 'segment', 'balanceDue', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'segment', 'email', 'phone', 'address', 'taxId', 'creditLimit', 'balanceDue', 'leadId', 'notes', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 1 && data.code.size() <= 40 &&
+          data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+          data.segment in ['B2B', 'B2C', 'Administration'] &&
+          (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+          (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+          (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+          (!('taxId' in data) || (data.taxId is string && data.taxId.size() <= 80)) &&
+          (!('creditLimit' in data) || (data.creditLimit is number && data.creditLimit >= 0)) &&
+          data.balanceDue is number &&
+          (!('leadId' in data) || (data.leadId is string && data.leadId.size() <= 128)) &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /customers/{customerId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(customerId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(customerId) &&
+          isValidCustomer(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(customerId) &&
+          isValidCustomer(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'segment', 'email', 'phone', 'address', 'taxId', 'creditLimit', 'balanceDue', 'notes', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(customerId) && canCompanyDelete(companyId);
+      }
+
+      // 4.7 CRM: Opportunities
+      function isValidOpportunity(data) {
+        return data.keys().hasAll(['title', 'stage', 'amount', 'probability', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['title', 'customerId', 'customerName', 'stage', 'amount', 'probability', 'expectedCloseDate', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+          (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 128)) &&
+          (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 160)) &&
+          data.stage in ['prospection', 'qualification', 'proposition', 'negociation', 'gagnee', 'perdue'] &&
+          data.amount is number && data.amount >= 0 &&
+          data.probability is number && data.probability >= 0 && data.probability <= 100 &&
+          (!('expectedCloseDate' in data) || (data.expectedCloseDate is string && data.expectedCloseDate.size() <= 30)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /opportunities/{oppId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(oppId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(oppId) &&
+          isValidOpportunity(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(oppId) &&
+          isValidOpportunity(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'customerId', 'customerName', 'stage', 'amount', 'probability', 'expectedCloseDate', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(oppId) && canCompanyDelete(companyId);
+      }
+
+      // 4.8 CRM: Interactions
+      function isValidInteraction(data) {
+        return data.keys().hasAll(['entityType', 'entityId', 'channel', 'summary', 'date', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.keys().hasOnly(['entityType', 'entityId', 'entityName', 'channel', 'summary', 'date', 'authorEmail', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.entityType in ['lead', 'customer', 'opportunity'] &&
+          data.entityId is string && data.entityId.size() >= 1 && data.entityId.size() <= 128 &&
+          (!('entityName' in data) || (data.entityName is string && data.entityName.size() <= 160)) &&
+          data.channel in ['appel', 'email', 'reunion', 'note'] &&
+          data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 800 &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('authorEmail' in data) || (data.authorEmail is string && data.authorEmail.size() <= 200)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp;
+      }
+
+      match /interactions/{interactionId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(interactionId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(interactionId) &&
+          isValidInteraction(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(interactionId) && canCompanyDelete(companyId);
+      }
+
+      // 4.9 Stocks: Categories
+      function isValidCategory(data) {
+        return data.keys().hasAll(['code', 'name', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'description', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 1 && data.code.size() <= 30 &&
+          data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+          (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /categories/{categoryId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(categoryId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(categoryId) &&
+          isValidCategory(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(categoryId) &&
+          isValidCategory(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'description', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(categoryId) && canCompanyDelete(companyId);
+      }
+
+      // 4.10 Stocks: Warehouses
+      function isValidWarehouse(data) {
+        return data.keys().hasAll(['code', 'name', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'location', 'managerName', 'isDefault', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 1 && data.code.size() <= 30 &&
+          data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+          (!('location' in data) || (data.location is string && data.location.size() <= 200)) &&
+          (!('managerName' in data) || (data.managerName is string && data.managerName.size() <= 120)) &&
+          (!('isDefault' in data) || data.isDefault is bool) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /warehouses/{warehouseId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(warehouseId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(warehouseId) &&
+          isValidWarehouse(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(warehouseId) &&
+          isValidWarehouse(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'location', 'managerName', 'isDefault', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(warehouseId) && canCompanyDelete(companyId);
+      }
+
+      // 4.11 Stocks: Products
+      function isValidProduct(data) {
+        return data.keys().hasAll(['sku', 'name', 'purchasePrice', 'salePrice', 'stockQty', 'minStock', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['sku', 'name', 'categoryId', 'categoryName', 'unit', 'purchasePrice', 'salePrice', 'taxRate', 'stockQty', 'minStock', 'warehouseStocks', 'trackStock', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.sku is string && data.sku.size() >= 1 && data.sku.size() <= 50 &&
+          data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+          (!('categoryId' in data) || (data.categoryId is string && data.categoryId.size() <= 128)) &&
+          (!('categoryName' in data) || (data.categoryName is string && data.categoryName.size() <= 120)) &&
+          (!('unit' in data) || (data.unit is string && data.unit.size() <= 30)) &&
+          data.purchasePrice is number && data.purchasePrice >= 0 &&
+          data.salePrice is number && data.salePrice >= 0 &&
+          (!('taxRate' in data) || (data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 100)) &&
+          data.stockQty is number && data.stockQty >= 0 &&
+          data.minStock is number && data.minStock >= 0 &&
+          (!('warehouseStocks' in data) || data.warehouseStocks is map) &&
+          (!('trackStock' in data) || data.trackStock is bool) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /products/{productId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(productId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(productId) &&
+          isValidProduct(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(productId) &&
+          isValidProduct(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['sku', 'name', 'categoryId', 'categoryName', 'unit', 'purchasePrice', 'salePrice', 'taxRate', 'stockQty', 'minStock', 'warehouseStocks', 'trackStock', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(productId) && canCompanyDelete(companyId);
+      }
+
+      // 4.12 Stocks: Movements (Append-only traceability)
+      function isValidStockMovement(data) {
+        return data.keys().hasAll(['productId', 'productName', 'warehouseId', 'type', 'quantity', 'totalValue', 'date', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.keys().hasOnly(['productId', 'productName', 'sku', 'warehouseId', 'warehouseName', 'toWarehouseId', 'toWarehouseName', 'type', 'quantity', 'unitCost', 'totalValue', 'referenceType', 'referenceNumber', 'note', 'date', 'authorEmail', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 128 &&
+          data.productName is string && data.productName.size() <= 160 &&
+          (!('sku' in data) || (data.sku is string && data.sku.size() <= 50)) &&
+          data.warehouseId is string && data.warehouseId.size() >= 1 && data.warehouseId.size() <= 128 &&
+          (!('warehouseName' in data) || (data.warehouseName is string && data.warehouseName.size() <= 120)) &&
+          (!('toWarehouseId' in data) || (data.toWarehouseId is string && data.toWarehouseId.size() <= 128)) &&
+          (!('toWarehouseName' in data) || (data.toWarehouseName is string && data.toWarehouseName.size() <= 120)) &&
+          data.type in ['entree', 'sortie', 'transfert', 'inventaire'] &&
+          data.quantity is number &&
+          (!('unitCost' in data) || data.unitCost is number) &&
+          data.totalValue is number &&
+          (!('referenceType' in data) || (data.referenceType is string && data.referenceType.size() <= 40)) &&
+          (!('referenceNumber' in data) || (data.referenceNumber is string && data.referenceNumber.size() <= 80)) &&
+          (!('note' in data) || (data.note is string && data.note.size() <= 400)) &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('authorEmail' in data) || (data.authorEmail is string && data.authorEmail.size() <= 200)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp;
+      }
+
+      match /stockMovements/{movementId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(movementId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(movementId) &&
+          isValidStockMovement(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(movementId) && canCompanyDelete(companyId);
+      }
+
+      // 4.13 Ventes: Quotes
+      function isValidQuote(data) {
+        return data.keys().hasAll(['number', 'customerId', 'customerName', 'date', 'status', 'lines', 'total', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['number', 'customerId', 'customerName', 'date', 'validUntil', 'status', 'lines', 'subtotal', 'discountTotal', 'taxTotal', 'total', 'notes', 'salesOrderId', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          data.customerId is string && data.customerId.size() <= 128 &&
+          data.customerName is string && data.customerName.size() <= 160 &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('validUntil' in data) || (data.validUntil is string && data.validUntil.size() <= 30)) &&
+          data.status in ['brouillon', 'envoye', 'accepte', 'refuse', 'converti'] &&
+          isValidLinesList(data.lines) && data.lines[0] is map &&
+          (!('subtotal' in data) || data.subtotal is number) &&
+          (!('discountTotal' in data) || data.discountTotal is number) &&
+          (!('taxTotal' in data) || data.taxTotal is number) &&
+          data.total is number && data.total >= 0 &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 600)) &&
+          (!('salesOrderId' in data) || (data.salesOrderId is string && data.salesOrderId.size() <= 128)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /quotes/{quoteId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(quoteId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(quoteId) &&
+          isValidQuote(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(quoteId) &&
+          isValidQuote(incoming()) && canCompanyWrite(companyId) &&
+          (existing().status != 'converti' || isCompanyAdmin(companyId)) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'lines', 'subtotal', 'discountTotal', 'taxTotal', 'total', 'notes', 'salesOrderId', 'validUntil', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(quoteId) && canCompanyDelete(companyId);
+      }
+
+      // 4.14 Ventes: Sales Orders
+      function isValidSalesOrder(data) {
+        return data.keys().hasAll(['number', 'customerId', 'customerName', 'warehouseId', 'date', 'status', 'lines', 'total', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['number', 'quoteId', 'customerId', 'customerName', 'warehouseId', 'date', 'status', 'lines', 'subtotal', 'discountTotal', 'taxTotal', 'total', 'invoiceId', 'notes', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          (!('quoteId' in data) || (data.quoteId is string && data.quoteId.size() <= 128)) &&
+          data.customerId is string && data.customerId.size() <= 128 &&
+          data.customerName is string && data.customerName.size() <= 160 &&
+          data.warehouseId is string && data.warehouseId.size() <= 128 &&
+          data.date is string && data.date.size() <= 30 &&
+          data.status in ['brouillon', 'validee', 'livree', 'facturee', 'annulee'] &&
+          isValidLinesList(data.lines) && data.lines[0] is map &&
+          (!('subtotal' in data) || data.subtotal is number) &&
+          (!('discountTotal' in data) || data.discountTotal is number) &&
+          (!('taxTotal' in data) || data.taxTotal is number) &&
+          data.total is number && data.total >= 0 &&
+          (!('invoiceId' in data) || (data.invoiceId is string && data.invoiceId.size() <= 128)) &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 600)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /salesOrders/{orderId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(orderId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(orderId) &&
+          isValidSalesOrder(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(orderId) &&
+          isValidSalesOrder(incoming()) && canCompanyWrite(companyId) &&
+          (existing().status != 'annulee' || isCompanyAdmin(companyId)) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'lines', 'subtotal', 'discountTotal', 'taxTotal', 'total', 'invoiceId', 'notes', 'warehouseId', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(orderId) && canCompanyDelete(companyId);
+      }
+
+      // 4.15 Ventes: Invoices
+      function isValidInvoice(data) {
+        return data.keys().hasAll(['number', 'customerId', 'customerName', 'date', 'status', 'lines', 'total', 'paidAmount', 'balanceDue', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['number', 'salesOrderId', 'customerId', 'customerName', 'customerEmail', 'date', 'dueDate', 'status', 'lines', 'subtotal', 'discountTotal', 'taxTotal', 'total', 'paidAmount', 'balanceDue', 'notes', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          (!('salesOrderId' in data) || (data.salesOrderId is string && data.salesOrderId.size() <= 128)) &&
+          data.customerId is string && data.customerId.size() <= 128 &&
+          data.customerName is string && data.customerName.size() <= 160 &&
+          (!('customerEmail' in data) || (data.customerEmail is string && data.customerEmail.size() <= 160)) &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 30)) &&
+          data.status in ['brouillon', 'emise', 'partielle', 'payee', 'en_retard', 'annulee'] &&
+          isValidLinesList(data.lines) && data.lines[0] is map &&
+          (!('subtotal' in data) || data.subtotal is number) &&
+          (!('discountTotal' in data) || data.discountTotal is number) &&
+          (!('taxTotal' in data) || data.taxTotal is number) &&
+          data.total is number && data.total >= 0 &&
+          data.paidAmount is number && data.paidAmount >= 0 &&
+          data.balanceDue is number && data.balanceDue >= 0 &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 600)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /invoices/{invoiceId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(invoiceId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(invoiceId) &&
+          isValidInvoice(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(invoiceId) &&
+          isValidInvoice(incoming()) && canCompanyWrite(companyId) &&
+          (!(existing().status in ['payee', 'annulee']) || isCompanyAdmin(companyId)) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paidAmount', 'balanceDue', 'dueDate', 'notes', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(invoiceId) && canCompanyDelete(companyId);
+      }
+
+      // 4.16 Achats: Suppliers
+      function isValidSupplier(data) {
+        return data.keys().hasAll(['code', 'name', 'balancePayable', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'email', 'phone', 'address', 'taxId', 'paymentTerms', 'balancePayable', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 1 && data.code.size() <= 40 &&
+          data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+          (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+          (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+          (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+          (!('taxId' in data) || (data.taxId is string && data.taxId.size() <= 80)) &&
+          (!('paymentTerms' in data) || (data.paymentTerms is string && data.paymentTerms.size() <= 60)) &&
+          data.balancePayable is number &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /suppliers/{supplierId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(supplierId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(supplierId) &&
+          isValidSupplier(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(supplierId) &&
+          isValidSupplier(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'email', 'phone', 'address', 'taxId', 'paymentTerms', 'balancePayable', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(supplierId) && canCompanyDelete(companyId);
+      }
+
+      // 4.17 Achats: Purchase Requests
+      function isValidPurchaseRequest(data) {
+        return data.keys().hasAll(['number', 'requesterName', 'date', 'status', 'lines', 'estimatedTotal', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['number', 'requesterName', 'departmentName', 'date', 'status', 'lines', 'estimatedTotal', 'notes', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          data.requesterName is string && data.requesterName.size() >= 1 && data.requesterName.size() <= 120 &&
+          (!('departmentName' in data) || (data.departmentName is string && data.departmentName.size() <= 120)) &&
+          data.date is string && data.date.size() <= 30 &&
+          data.status in ['en_attente', 'approuvee', 'rejetee', 'commandee'] &&
+          isValidLinesList(data.lines) && data.lines[0] is map &&
+          data.estimatedTotal is number && data.estimatedTotal >= 0 &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 600)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /purchaseRequests/{reqId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(reqId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(reqId) &&
+          isValidPurchaseRequest(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(reqId) &&
+          isValidPurchaseRequest(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'notes', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(reqId) && canCompanyDelete(companyId);
+      }
+
+      // 4.18 Achats: Purchase Orders
+      function isValidPurchaseOrder(data) {
+        return data.keys().hasAll(['number', 'supplierId', 'supplierName', 'warehouseId', 'date', 'status', 'lines', 'total', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['number', 'supplierId', 'supplierName', 'warehouseId', 'date', 'expectedDate', 'status', 'lines', 'subtotal', 'taxTotal', 'total', 'receivedAt', 'notes', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          data.supplierId is string && data.supplierId.size() <= 128 &&
+          data.supplierName is string && data.supplierName.size() <= 160 &&
+          data.warehouseId is string && data.warehouseId.size() <= 128 &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('expectedDate' in data) || (data.expectedDate is string && data.expectedDate.size() <= 30)) &&
+          data.status in ['brouillon', 'envoyee', 'receptionnee', 'facturee', 'annulee'] &&
+          isValidLinesList(data.lines) && data.lines[0] is map &&
+          (!('subtotal' in data) || data.subtotal is number) &&
+          (!('taxTotal' in data) || data.taxTotal is number) &&
+          data.total is number && data.total >= 0 &&
+          (!('receivedAt' in data) || (data.receivedAt is string && data.receivedAt.size() <= 40)) &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 600)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /purchaseOrders/{poId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(poId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(poId) &&
+          isValidPurchaseOrder(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(poId) &&
+          isValidPurchaseOrder(incoming()) && canCompanyWrite(companyId) &&
+          (!(existing().status in ['annulee']) || isCompanyAdmin(companyId)) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'receivedAt', 'notes', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(poId) && canCompanyDelete(companyId);
+      }
+
+      // 4.19 Achats: Supplier Invoices
+      function isValidSupplierInvoice(data) {
+        return data.keys().hasAll(['number', 'supplierId', 'supplierName', 'date', 'status', 'total', 'paidAmount', 'balanceDue', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['number', 'purchaseOrderId', 'supplierId', 'supplierName', 'date', 'dueDate', 'status', 'total', 'paidAmount', 'balanceDue', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          (!('purchaseOrderId' in data) || (data.purchaseOrderId is string && data.purchaseOrderId.size() <= 128)) &&
+          data.supplierId is string && data.supplierId.size() <= 128 &&
+          data.supplierName is string && data.supplierName.size() <= 160 &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 30)) &&
+          data.status in ['en_attente', 'partielle', 'payee'] &&
+          data.total is number && data.total >= 0 &&
+          data.paidAmount is number && data.paidAmount >= 0 &&
+          data.balanceDue is number && data.balanceDue >= 0 &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /supplierInvoices/{sinvId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(sinvId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(sinvId) &&
+          isValidSupplierInvoice(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(sinvId) &&
+          isValidSupplierInvoice(incoming()) && canCompanyWrite(companyId) &&
+          (existing().status != 'payee' || isCompanyAdmin(companyId)) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paidAmount', 'balanceDue', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(sinvId) && canCompanyDelete(companyId);
+      }
+
+      // 4.20 Comptabilité: Chart of Accounts (OHADA)
+      function isValidAccount(data) {
+        return data.keys().hasAll(['code', 'name', 'classNumber', 'type', 'balanceDebit', 'balanceCredit', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'classNumber', 'type', 'balanceDebit', 'balanceCredit', 'isSystem', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 2 && data.code.size() <= 20 &&
+          data.name is string && data.name.size() >= 2 && data.name.size() <= 160 &&
+          data.classNumber is number && data.classNumber >= 1 && data.classNumber <= 8 &&
+          data.type in ['actif', 'passif', 'charge', 'produit'] &&
+          data.balanceDebit is number && data.balanceCredit is number &&
+          (!('isSystem' in data) || data.isSystem is bool) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /accounts/{accountId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) &&
+          isValidAccount(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) &&
+          isValidAccount(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'balanceDebit', 'balanceCredit', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) && canCompanyDelete(companyId);
+      }
+
+      // 4.21 Comptabilité: Journal Entries (Strict Double-Entry Balance)
+      function isValidJournalEntry(data) {
+        return data.keys().hasAll(['number', 'date', 'journalCode', 'label', 'lines', 'totalDebit', 'totalCredit', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.keys().hasOnly(['number', 'date', 'journalCode', 'reference', 'label', 'lines', 'totalDebit', 'totalCredit', 'sourceModule', 'sourceId', 'status', 'authorEmail', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          data.date is string && data.date.size() <= 30 &&
+          data.journalCode in ['VE', 'AC', 'BQ', 'CA', 'OD'] &&
+          (!('reference' in data) || (data.reference is string && data.reference.size() <= 80)) &&
+          data.label is string && data.label.size() >= 1 && data.label.size() <= 240 &&
+          data.lines is list && data.lines.size() >= 2 && data.lines.size() <= 30 && data.lines[0] is map &&
+          data.totalDebit is number && data.totalCredit is number &&
+          data.totalDebit > 0 &&
+          (data.totalDebit - data.totalCredit) < 0.01 &&
+          (data.totalCredit - data.totalDebit) < 0.01 &&
+          (!('sourceModule' in data) || (data.sourceModule is string && data.sourceModule.size() <= 60)) &&
+          (!('sourceId' in data) || (data.sourceId is string && data.sourceId.size() <= 128)) &&
+          (!('status' in data) || (data.status in ['validee'])) &&
+          (!('authorEmail' in data) || (data.authorEmail is string && data.authorEmail.size() <= 200)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp;
+      }
+
+      match /journalEntries/{entryId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(entryId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(entryId) &&
+          isValidJournalEntry(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(entryId) && canCompanyDelete(companyId);
+      }
+
+      // 4.22 Trésorerie: Bank Accounts & Cash Registers
+      function isValidTreasuryAccount(data) {
+        return data.keys().hasAll(['name', 'type', 'accountCode', 'balance', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['name', 'type', 'bankName', 'iban', 'accountCode', 'balance', 'currency', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
+          data.type in ['banque', 'caisse'] &&
+          (!('bankName' in data) || (data.bankName is string && data.bankName.size() <= 120)) &&
+          (!('iban' in data) || (data.iban is string && data.iban.size() <= 80)) &&
+          data.accountCode is string && data.accountCode.size() >= 2 && data.accountCode.size() <= 20 &&
+          data.balance is number &&
+          (!('currency' in data) || (data.currency is string && data.currency.size() <= 10)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /treasuryAccounts/{accountId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) &&
+          isValidTreasuryAccount(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) &&
+          isValidTreasuryAccount(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'bankName', 'iban', 'balance', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(accountId) && canCompanyDelete(companyId);
+      }
+
+      // 4.23 Trésorerie: Payments
+      function isValidPayment(data) {
+        return data.keys().hasAll(['number', 'direction', 'partnerType', 'partnerName', 'treasuryAccountId', 'method', 'amount', 'date', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.keys().hasOnly(['number', 'direction', 'partnerType', 'partnerId', 'partnerName', 'invoiceId', 'invoiceNumber', 'treasuryAccountId', 'treasuryAccountName', 'method', 'amount', 'date', 'reference', 'note', 'ownerId', 'memberUids', 'isDemo', 'createdAt']) &&
+          data.number is string && data.number.size() >= 1 && data.number.size() <= 60 &&
+          data.direction in ['encaissement', 'decaissement'] &&
+          data.partnerType in ['client', 'fournisseur', 'autre'] &&
+          (!('partnerId' in data) || (data.partnerId is string && data.partnerId.size() <= 128)) &&
+          data.partnerName is string && data.partnerName.size() >= 1 && data.partnerName.size() <= 160 &&
+          (!('invoiceId' in data) || (data.invoiceId is string && data.invoiceId.size() <= 128)) &&
+          (!('invoiceNumber' in data) || (data.invoiceNumber is string && data.invoiceNumber.size() <= 60)) &&
+          data.treasuryAccountId is string && data.treasuryAccountId.size() >= 1 && data.treasuryAccountId.size() <= 128 &&
+          (!('treasuryAccountName' in data) || (data.treasuryAccountName is string && data.treasuryAccountName.size() <= 140)) &&
+          data.method in ['virement', 'especes', 'cheque', 'mobile_money'] &&
+          data.amount is number && data.amount > 0 &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('reference' in data) || (data.reference is string && data.reference.size() <= 80)) &&
+          (!('note' in data) || (data.note is string && data.note.size() <= 400)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp;
+      }
+
+      match /payments/{paymentId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(paymentId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(paymentId) &&
+          isValidPayment(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(paymentId) && canCompanyDelete(companyId);
+      }
+
+      // 4.24 Ressources Humaines: Employees
+      function isValidEmployee(data) {
+        return data.keys().hasAll(['matricule', 'firstName', 'lastName', 'departmentName', 'position', 'contractType', 'baseSalary', 'status', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['matricule', 'firstName', 'lastName', 'email', 'phone', 'departmentId', 'departmentName', 'position', 'contractType', 'hireDate', 'baseSalary', 'status', 'history', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.matricule is string && data.matricule.size() >= 1 && data.matricule.size() <= 40 &&
+          data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 80 &&
+          data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 80 &&
+          (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+          (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+          (!('departmentId' in data) || (data.departmentId is string && data.departmentId.size() <= 128)) &&
+          data.departmentName is string && data.departmentName.size() <= 120 &&
+          data.position is string && data.position.size() <= 120 &&
+          data.contractType in ['CDI', 'CDD', 'Stage', 'Consultant'] &&
+          (!('hireDate' in data) || (data.hireDate is string && data.hireDate.size() <= 30)) &&
+          data.baseSalary is number && data.baseSalary >= 0 &&
+          data.status in ['actif', 'en_conge', 'suspendu', 'sorti'] &&
+          (!('history' in data) || (data.history is list && data.history.size() <= 30)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /employees/{employeeId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(employeeId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(employeeId) &&
+          isValidEmployee(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(employeeId) &&
+          isValidEmployee(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'departmentId', 'departmentName', 'position', 'contractType', 'baseSalary', 'status', 'history', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(employeeId) && canCompanyDelete(companyId);
+      }
+
+      // 4.25 Ressources Humaines: Leaves & Absences
+      function isValidLeave(data) {
+        return data.keys().hasAll(['employeeId', 'employeeName', 'type', 'startDate', 'endDate', 'days', 'status', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['employeeId', 'employeeName', 'type', 'startDate', 'endDate', 'days', 'reason', 'status', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.employeeId is string && data.employeeId.size() >= 1 && data.employeeId.size() <= 128 &&
+          data.employeeName is string && data.employeeName.size() <= 160 &&
+          data.type in ['conge_paye', 'maladie', 'absence', 'exceptionnel'] &&
+          data.startDate is string && data.startDate.size() <= 30 &&
+          data.endDate is string && data.endDate.size() <= 30 &&
+          data.days is number && data.days > 0 && data.days <= 365 &&
+          (!('reason' in data) || (data.reason is string && data.reason.size() <= 400)) &&
+          data.status in ['en_attente', 'approuve', 'refuse'] &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /leaves/{leaveId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(leaveId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(leaveId) &&
+          isValidLeave(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(leaveId) &&
+          isValidLeave(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reason', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(leaveId) && canCompanyDelete(companyId);
+      }
+
+      // 4.26 Ressources Humaines: Payrolls
+      function isValidPayroll(data) {
+        return data.keys().hasAll(['period', 'employeeId', 'employeeName', 'baseSalary', 'netSalary', 'status', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['period', 'employeeId', 'employeeName', 'departmentName', 'baseSalary', 'bonuses', 'deductions', 'netSalary', 'status', 'paidAt', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.period is string && data.period.size() >= 4 && data.period.size() <= 20 &&
+          data.employeeId is string && data.employeeId.size() >= 1 && data.employeeId.size() <= 128 &&
+          data.employeeName is string && data.employeeName.size() <= 160 &&
+          (!('departmentName' in data) || (data.departmentName is string && data.departmentName.size() <= 120)) &&
+          data.baseSalary is number && data.baseSalary >= 0 &&
+          (!('bonuses' in data) || (data.bonuses is number && data.bonuses >= 0)) &&
+          (!('deductions' in data) || (data.deductions is number && data.deductions >= 0)) &&
+          data.netSalary is number && data.netSalary >= 0 &&
+          data.status in ['brouillon', 'validee', 'payee'] &&
+          (!('paidAt' in data) || (data.paidAt is string && data.paidAt.size() <= 40)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /payrolls/{payrollId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(payrollId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(payrollId) &&
+          isValidPayroll(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(payrollId) &&
+          isValidPayroll(incoming()) && canCompanyWrite(companyId) &&
+          (existing().status != 'payee' || isCompanyAdmin(companyId)) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['bonuses', 'deductions', 'netSalary', 'status', 'paidAt', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(payrollId) && canCompanyDelete(companyId);
+      }
+
+      // 4.27 Notifications
+      function isValidNotification(data) {
+        return data.keys().hasAll(['title', 'message', 'severity', 'module', 'read', 'ownerId', 'memberUids', 'createdAt']) &&
+          data.keys().hasOnly(['title', 'message', 'severity', 'module', 'read', 'ownerId', 'memberUids', 'createdAt']) &&
+          data.title is string && data.title.size() >= 1 && data.title.size() <= 140 &&
+          data.message is string && data.message.size() >= 1 && data.message.size() <= 400 &&
+          data.severity in ['info', 'warning', 'success', 'error'] &&
+          data.module is string && data.module.size() >= 1 && data.module.size() <= 60 &&
+          data.read is bool &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.createdAt is timestamp;
+      }
+
+      match /notifications/{notifId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(notifId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(notifId) &&
+          isValidNotification(incoming()) && isCompanyMember(companyId) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(notifId) &&
+          isValidNotification(incoming()) && isCompanyMember(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['read', 'memberUids']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(notifId) && isCompanyMember(companyId);
+      }
+    }
+  }
+}
