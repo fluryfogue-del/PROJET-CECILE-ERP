@@ -1,26 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Download, Trash2, Building2, ShieldAlert, Lock, KeyRound, Upload, FileSpreadsheet } from 'lucide-react';
-import { doc, serverTimestamp, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useErp } from '../../contexts/ErpContext';
-import { db } from '../../lib/firebase';
 import { downloadJsonFile, exportWorkbookExcel } from '../../lib/exports';
 import { formatMoney, todayIso } from '../../lib/format';
 import { ImportSpreadsheetModal } from '../ImportSpreadsheetModal';
 import {
-  hashWorkspacePassword,
   isNonEmptyText,
   validateWorkspacePasswordPair,
-  verifyWorkspacePassword,
 } from '../../lib/security';
 import {
   ALL_MODULES,
+  addWorkspaceMember,
   createErpDoc,
   deleteErpDoc,
   exportCompanyBackup,
-  logAudit,
   purgeDemoData,
   updateErpDoc,
   updateWorkspacePassword,
+  updateWorkspaceSettings,
 } from '../../services/erpEngine';
 import { AccountingStandard, CurrencyCode, RoleCode } from '../../types/erp';
 import {
@@ -67,6 +64,13 @@ export const AdminView: React.FC = () => {
   const [compPhone, setCompPhone] = useState(activeCompany?.phone || '');
   const [compCurrency, setCompCurrency] = useState<CurrencyCode>(activeCompany?.currency || 'XAF');
   const [compStandard, setCompStandard] = useState<AccountingStandard>(activeCompany?.accountingStandard || 'OHADA');
+  const [invoicePrefix, setInvoicePrefix] = useState(activeCompany?.invoicePrefix || 'FAC');
+  const [invoicePaymentTerms, setInvoicePaymentTerms] = useState(
+    activeCompany?.invoicePaymentTerms || 'Paiement à 30 jours net'
+  );
+  const [invoiceNotesDefault, setInvoiceNotesDefault] = useState(
+    activeCompany?.invoiceNotesDefault || ''
+  );
 
   // Workspace Password Update Form
   const [currentPwd, setCurrentPwd] = useState('');
@@ -87,12 +91,14 @@ export const AdminView: React.FC = () => {
     setCompPhone(activeCompany.phone || '');
     setCompCurrency(activeCompany.currency || 'XAF');
     setCompStandard(activeCompany.accountingStandard || 'OHADA');
+    setInvoicePrefix(activeCompany.invoicePrefix || 'FAC');
+    setInvoicePaymentTerms(activeCompany.invoicePaymentTerms || 'Paiement à 30 jours net');
+    setInvoiceNotesDefault(activeCompany.invoiceNotesDefault || '');
   }, [activeCompany]);
 
   // Member Modal
   const [memberModal, setMemberModal] = useState(false);
   const [memberForm, setMemberForm] = useState({
-    uid: '',
     email: '',
     displayName: '',
     roleCode: 'commercial' as RoleCode,
@@ -123,7 +129,7 @@ export const AdminView: React.FC = () => {
       return;
     }
     try {
-      await updateDoc(doc(db, 'companies', activeCompany.id), {
+      await updateWorkspaceSettings(activeCompany.id, {
         name: compName.trim(),
         ownerLastName: ownerLastName.trim(),
         ownerFirstName: ownerFirstName.trim(),
@@ -135,19 +141,11 @@ export const AdminView: React.FC = () => {
         phone: compPhone.trim(),
         currency: compCurrency,
         accountingStandard: compStandard,
-        updatedAt: serverTimestamp(),
+        invoicePrefix: invoicePrefix.trim().toUpperCase() || 'FAC',
+        invoicePaymentTerms: invoicePaymentTerms.trim(),
+        invoiceNotesDefault: invoiceNotesDefault.trim(),
       });
-      await logAudit({
-        companyId: activeCompany.id,
-        uid: user.uid,
-        email: user.email || '',
-        ownerId,
-        memberUids,
-        action: 'UPDATE_SETTINGS',
-        module: 'admin',
-        summary: `Mise à jour des paramètres généraux de ${compName.trim()}.`,
-      });
-      notify('Paramètres de l’espace enregistrés.', 'success');
+      notify('Paramètres et modèle de facture enregistrés.', 'success');
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Erreur paramètres', 'error');
     }
@@ -155,20 +153,10 @@ export const AdminView: React.FC = () => {
 
   const handleUpdateWorkspacePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (activeCompany.passwordHash && activeCompany.passwordSalt) {
-      if (!isNonEmptyText(currentPwd)) {
-        notify('Veuillez saisir le mot de passe actuel de l’espace.', 'error');
-        return;
-      }
-      const validCurrent = await verifyWorkspacePassword(
-        currentPwd,
-        activeCompany.passwordSalt,
-        activeCompany.passwordHash
-      );
-      if (!validCurrent) {
-        notify('Mot de passe actuel incorrect.', 'error');
-        return;
-      }
+    const hasExistingPwd = activeCompany.hasPassword ?? Boolean(activeCompany.passwordHash);
+    if (hasExistingPwd && !isNonEmptyText(currentPwd)) {
+      notify('Veuillez saisir le mot de passe actuel de l’espace.', 'error');
+      return;
     }
     const pairErr = validateWorkspacePasswordPair(newPwd, confirmPwd);
     if (pairErr) {
@@ -177,18 +165,7 @@ export const AdminView: React.FC = () => {
     }
     setPwdBusy(true);
     try {
-      const { salt, hash } = await hashWorkspacePassword(newPwd);
-      await updateWorkspacePassword(activeCompany.id, salt, hash);
-      await logAudit({
-        companyId: activeCompany.id,
-        uid: user.uid,
-        email: user.email || '',
-        ownerId,
-        memberUids,
-        action: 'UPDATE_PASSWORD',
-        module: 'admin',
-        summary: 'Modification du mot de passe de protection de l’espace de travail.',
-      });
+      await updateWorkspacePassword(activeCompany.id, currentPwd, newPwd);
       setCurrentPwd('');
       setNewPwd('');
       setConfirmPwd('');
@@ -202,32 +179,15 @@ export const AdminView: React.FC = () => {
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    const roleDef = roles.find((r) => r.code === memberForm.roleCode);
-    const targetUid = memberForm.uid.trim();
-    if (!targetUid) return;
+    if (!memberForm.email.trim()) return;
     try {
-      const updatedMemberUids = Array.from(new Set([...memberUids, targetUid]));
-      await updateDoc(doc(db, 'companies', activeCompany.id), {
-        memberUids: arrayUnion(targetUid),
-        updatedAt: serverTimestamp(),
-      });
-      await setDoc(doc(db, `companies/${activeCompany.id}/members/${targetUid}`), {
-        uid: targetUid,
+      await addWorkspaceMember(activeCompany.id, {
         email: memberForm.email.trim(),
         displayName: memberForm.displayName.trim(),
         roleCode: memberForm.roleCode,
         departmentName: memberForm.departmentName,
-        allowedModules: roleDef?.allowedModules || ['dashboard', 'crm', 'sales'],
-        canWrite: roleDef?.canWrite ?? true,
-        canValidate: roleDef?.canValidate ?? false,
-        canDelete: roleDef?.canDelete ?? false,
-        active: true,
-        ownerId,
-        memberUids: updatedMemberUids,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
       });
-      notify('Utilisateur ajouté à la société.', 'success');
+      notify('Utilisateur ajouté à l’espace.', 'success');
       setMemberModal(false);
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Erreur ajout utilisateur', 'error');
@@ -423,6 +383,18 @@ export const AdminView: React.FC = () => {
                 <label className={labelCls}>Adresse physique *</label>
                 <input required className={inputCls} value={compAddress} onChange={(e) => setCompAddress(e.target.value)} />
               </div>
+              <div>
+                <label className={labelCls}>Préfixe de facturation</label>
+                <input className={inputCls} value={invoicePrefix} onChange={(e) => setInvoicePrefix(e.target.value)} placeholder="FAC" maxLength={8} />
+              </div>
+              <div>
+                <label className={labelCls}>Conditions de paiement par défaut</label>
+                <input className={inputCls} value={invoicePaymentTerms} onChange={(e) => setInvoicePaymentTerms(e.target.value)} placeholder="Paiement à 30 jours net" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Mentions légales / Pied de facture</label>
+                <input className={inputCls} value={invoiceNotesDefault} onChange={(e) => setInvoiceNotesDefault(e.target.value)} placeholder="Règlement par virement bancaire, chèque ou Mobile Money." />
+              </div>
             </div>
             <div className="flex justify-end">
               <button type="submit" className={btnPrimaryCls}>Enregistrer les paramètres</button>
@@ -441,7 +413,7 @@ export const AdminView: React.FC = () => {
                 <p className="text-[11px] text-slate-500">Protection PBKDF2 des métriques</p>
               </div>
             </div>
-            {activeCompany.passwordHash && (
+            {(activeCompany.hasPassword ?? Boolean(activeCompany.passwordHash)) && (
               <div>
                 <label className={labelCls}>Mot de passe actuel *</label>
                 <input
@@ -661,19 +633,15 @@ export const AdminView: React.FC = () => {
       )}
 
       {/* Add Member Modal */}
-      <Modal open={memberModal} title="Ajouter un membre à la société" onClose={() => setMemberModal(false)} maxWidth="max-w-md">
+      <Modal open={memberModal} title="Ajouter un membre à l’espace" onClose={() => setMemberModal(false)} maxWidth="max-w-md">
         <form onSubmit={handleAddMember} className="space-y-4">
           <div>
-            <label className={labelCls}>UID Firebase Auth de l’utilisateur *</label>
-            <input required className={inputCls} value={memberForm.uid} onChange={(e) => setMemberForm({ ...memberForm, uid: e.target.value })} placeholder="Ex: XyZ123..." />
+            <label className={labelCls}>Adresse e-mail du compte FUREX ERP *</label>
+            <input type="email" required className={inputCls} value={memberForm.email} onChange={(e) => setMemberForm({ ...memberForm, email: e.target.value })} placeholder="collaborateur@entreprise.com" />
           </div>
           <div>
-            <label className={labelCls}>Nom complet *</label>
-            <input required className={inputCls} value={memberForm.displayName} onChange={(e) => setMemberForm({ ...memberForm, displayName: e.target.value })} />
-          </div>
-          <div>
-            <label className={labelCls}>Email *</label>
-            <input type="email" required className={inputCls} value={memberForm.email} onChange={(e) => setMemberForm({ ...memberForm, email: e.target.value })} />
+            <label className={labelCls}>Nom complet (optionnel)</label>
+            <input className={inputCls} value={memberForm.displayName} onChange={(e) => setMemberForm({ ...memberForm, displayName: e.target.value })} placeholder="Ex: Claire Mbarga" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

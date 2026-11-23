@@ -37,7 +37,10 @@ export const WorkspaceLockGate: React.FC = () => {
 
   if (!activeCompany) return null;
 
-  const needsPasswordSetup = !activeCompany.passwordHash || !activeCompany.passwordSalt;
+  const needsPasswordSetup =
+    activeCompany.hasPassword !== undefined
+      ? !activeCompany.hasPassword
+      : !activeCompany.passwordHash || !activeCompany.passwordSalt;
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();

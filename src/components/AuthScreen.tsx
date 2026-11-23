@@ -11,36 +11,44 @@ import {
   Sun,
   Moon,
   AlertCircle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useErp } from '../contexts/ErpContext';
 import { AccountType } from '../types/erp';
-import { validatePersonalDetails } from '../lib/security';
+import { isNonEmptyText, validatePersonalDetails, validateWorkspacePasswordPair } from '../lib/security';
 import { inputCls, labelCls } from './ui/DataUI';
 
 export const AuthScreen: React.FC = () => {
   const {
-    signInWithGoogle,
+    loginWithCredentials,
+    registerAccount,
     theme,
     toggleTheme,
     pendingAccountType,
     setPendingAccountType,
     pendingPersonalInfo,
-    setPendingPersonalInfo,
+    notify,
   } = useErp();
 
-  const [authTab, setAuthTab] = useState<'new' | 'existing'>('new');
+  const [authTab, setAuthTab] = useState<'register' | 'login'>('register');
   const [firstName, setFirstName] = useState(pendingPersonalInfo.firstName);
   const [lastName, setLastName] = useState(pendingPersonalInfo.lastName);
   const [phone, setPhone] = useState(pendingPersonalInfo.phone);
   const [address, setAddress] = useState(pendingPersonalInfo.address);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const handleSelectType = (type: AccountType) => {
     setPendingAccountType(type);
     setFormError(null);
   };
 
-  const handleNewProfileSubmit = async (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
@@ -55,19 +63,67 @@ export const AuthScreen: React.FC = () => {
       return;
     }
 
-    const cleanPersonal = {
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      phone: phone.trim(),
-      address: address.trim(),
-    };
-    setPendingPersonalInfo(cleanPersonal);
-    await signInWithGoogle(pendingAccountType, cleanPersonal);
+    if (!isNonEmptyText(email, 5) || !email.includes('@')) {
+      setFormError('Une adresse e-mail valide est obligatoire.');
+      return;
+    }
+
+    if (!password || password.trim().length < 6) {
+      setFormError('Le mot de passe du compte doit contenir au moins 6 caractères.');
+      return;
+    }
+
+    const pairErr = validateWorkspacePasswordPair(password, confirmPassword);
+    if (pairErr) {
+      setFormError(pairErr);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await registerAccount({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        email: email.trim(),
+        password,
+        accountType: pendingAccountType,
+      });
+      if (!res.ok) {
+        setFormError(res.error || 'Impossible de créer le compte.');
+        return;
+      }
+      notify('Compte créé et session sécurisée ouverte.', 'success');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleExistingSignIn = async () => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setFormError(null);
-    await signInWithGoogle(pendingAccountType);
+
+    if (!isNonEmptyText(email, 3) || !email.includes('@')) {
+      setFormError('Veuillez saisir une adresse e-mail valide.');
+      return;
+    }
+    if (!isNonEmptyText(password, 1)) {
+      setFormError('Le mot de passe est obligatoire.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await loginWithCredentials(email.trim(), password);
+      if (!res.ok) {
+        setFormError(res.error || 'Identifiants incorrects.');
+        return;
+      }
+      notify('Connexion réussie.', 'success');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -96,29 +152,29 @@ export const AuthScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => {
-              setAuthTab('existing');
-              void handleExistingSignIn();
+              setAuthTab('login');
+              setFormError(null);
             }}
             className="px-4 py-2 text-xs font-semibold bg-[#111216] dark:bg-white text-white dark:text-[#111216] hover:opacity-90 rounded-xl transition-opacity whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Accès membre
+            Se connecter
           </button>
         </div>
       </header>
 
-      {/* Main Content: Pure Welcome + Personal Identification (No workspaces or metrics exposed) */}
+      {/* Main Content */}
       <main className="max-w-6xl w-full mx-auto px-4 sm:px-8 py-10 sm:py-12 grid lg:grid-cols-12 gap-10 items-center">
-        {/* Left Column: Structured Value Proposition */}
+        {/* Left Column */}
         <div className="lg:col-span-6 space-y-6">
           <div className="space-y-3">
             <p className="text-xs font-bold uppercase tracking-wider text-[#FC3F1D]">
               Plateforme ERP Modulaire · Entreprise & Particulier
             </p>
             <h1 className="font-display text-3xl sm:text-5xl font-extrabold tracking-tight text-[#111216] dark:text-white leading-[1.1] text-balance">
-              Pilotez vos activités dans un espace privé et sécurisé.
+              Pilotez vos activités dans un espace privé et persistant.
             </h1>
             <p className="text-base text-slate-600 dark:text-slate-300 leading-relaxed max-w-xl">
-              Renseignez vos coordonnées personnelles, choisissez votre profil Entreprise ou Particulier, composez votre suite parmi plus de 66 modules métiers et protégez chaque espace par mot de passe.
+              Créez votre compte sécurisé, sélectionnez votre profil Entreprise ou Particulier, composez votre suite parmi plus de 66 modules et enregistrez toutes vos opérations en base de données.
             </p>
           </div>
 
@@ -134,114 +190,57 @@ export const AuthScreen: React.FC = () => {
               <Lock className="w-4 h-4 text-[#FC3F1D]" />
               <p className="text-xs font-bold text-[#111216] dark:text-white">Accès par mot de passe</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Vos indicateurs et données restent masqués tant que l’espace n’est pas déverrouillé.
+                Authentification serveur et verrouillage chiffré de chaque espace de travail.
               </p>
             </div>
             <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
               <Layers className="w-4 h-4 text-[#FC3F1D]" />
-              <p className="text-xs font-bold text-[#111216] dark:text-white">Gestion complète</p>
+              <p className="text-xs font-bold text-[#111216] dark:text-white">Modèle Factures complet</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Ajout rapide de nouveaux clients, produits, stocks, factures et écritures.
+                Numérotation séquentielle, TVA/remises, encaissements et export PDF, CSV, Excel.
               </p>
             </div>
             <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
               <ShieldCheck className="w-4 h-4 text-[#FC3F1D]" />
-              <p className="text-xs font-bold text-[#111216] dark:text-white">Isolement strict</p>
+              <p className="text-xs font-bold text-[#111216] dark:text-white">Persistance SQL & Cloudflare</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Chaque espace dispose de ses propres données, permissions et sauvegardes.
+                Architecture serveur prête pour Cloudflare Workers et base relationnelle D1.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Identification & Sign-in Card */}
+        {/* Right Column: Registration & Login Card */}
         <div className="lg:col-span-6 bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-6 sm:p-7 space-y-5">
           {/* Tabs */}
           <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#F5F6F8] dark:bg-[#0D0E12] rounded-xl border border-[#E6E8EC] dark:border-[#262933]">
             <button
               type="button"
               onClick={() => {
-                setAuthTab('new');
+                setAuthTab('register');
                 setFormError(null);
               }}
               className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-                authTab === 'new'
+                authTab === 'register'
                   ? 'bg-white dark:bg-[#16181F] text-[#FC3F1D] shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-[#111216] dark:hover:text-white'
               }`}
             >
-              Identification & Création
+              Créer un compte
             </button>
             <button
               type="button"
               onClick={() => {
-                setAuthTab('existing');
+                setAuthTab('login');
                 setFormError(null);
               }}
               className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-                authTab === 'existing'
+                authTab === 'login'
                   ? 'bg-white dark:bg-[#16181F] text-[#FC3F1D] shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-[#111216] dark:hover:text-white'
               }`}
             >
-              J’ai déjà un espace
-            </button>
-          </div>
-
-          {/* Profile Type Selector */}
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => handleSelectType('entreprise')}
-              className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
-                pendingAccountType === 'entreprise'
-                  ? 'border-[#FC3F1D] bg-[#FC3F1D]/[0.04] ring-1 ring-[#FC3F1D]'
-                  : 'border-[#E6E8EC] dark:border-[#262933] hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <Building2
-                  className={`w-4 h-4 ${
-                    pendingAccountType === 'entreprise' ? 'text-[#FC3F1D]' : 'text-slate-500'
-                  }`}
-                />
-                {pendingAccountType === 'entreprise' && (
-                  <CheckCircle2 className="w-4 h-4 text-[#FC3F1D]" />
-                )}
-              </div>
-              <p className="font-display font-bold text-xs text-[#111216] dark:text-white mt-2">
-                Entreprise
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Société, PME, Commerce
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSelectType('particulier')}
-              className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
-                pendingAccountType === 'particulier'
-                  ? 'border-[#FC3F1D] bg-[#FC3F1D]/[0.04] ring-1 ring-[#FC3F1D]'
-                  : 'border-[#E6E8EC] dark:border-[#262933] hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <User
-                  className={`w-4 h-4 ${
-                    pendingAccountType === 'particulier' ? 'text-[#FC3F1D]' : 'text-slate-500'
-                  }`}
-                />
-                {pendingAccountType === 'particulier' && (
-                  <CheckCircle2 className="w-4 h-4 text-[#FC3F1D]" />
-                )}
-              </div>
-              <p className="font-display font-bold text-xs text-[#111216] dark:text-white mt-2">
-                Particulier
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Indépendant, Activité perso
-              </p>
+              Connexion membre
             </button>
           </div>
 
@@ -252,8 +251,65 @@ export const AuthScreen: React.FC = () => {
             </div>
           )}
 
-          {authTab === 'new' ? (
-            <form onSubmit={handleNewProfileSubmit} noValidate className="space-y-3.5">
+          {authTab === 'register' ? (
+            <form onSubmit={handleRegisterSubmit} noValidate className="space-y-3.5">
+              {/* Profile Type Selector */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleSelectType('entreprise')}
+                  className={`text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                    pendingAccountType === 'entreprise'
+                      ? 'border-[#FC3F1D] bg-[#FC3F1D]/[0.04] ring-1 ring-[#FC3F1D]'
+                      : 'border-[#E6E8EC] dark:border-[#262933] hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <Building2
+                      className={`w-4 h-4 ${
+                        pendingAccountType === 'entreprise' ? 'text-[#FC3F1D]' : 'text-slate-500'
+                      }`}
+                    />
+                    {pendingAccountType === 'entreprise' && (
+                      <CheckCircle2 className="w-4 h-4 text-[#FC3F1D]" />
+                    )}
+                  </div>
+                  <p className="font-display font-bold text-xs text-[#111216] dark:text-white mt-1.5">
+                    Entreprise
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Société, PME, Commerce
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectType('particulier')}
+                  className={`text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                    pendingAccountType === 'particulier'
+                      ? 'border-[#FC3F1D] bg-[#FC3F1D]/[0.04] ring-1 ring-[#FC3F1D]'
+                      : 'border-[#E6E8EC] dark:border-[#262933] hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <User
+                      className={`w-4 h-4 ${
+                        pendingAccountType === 'particulier' ? 'text-[#FC3F1D]' : 'text-slate-500'
+                      }`}
+                    />
+                    {pendingAccountType === 'particulier' && (
+                      <CheckCircle2 className="w-4 h-4 text-[#FC3F1D]" />
+                    )}
+                  </div>
+                  <p className="font-display font-bold text-xs text-[#111216] dark:text-white mt-1.5">
+                    Particulier
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Indépendant, Activité perso
+                  </p>
+                </button>
+              </div>
+
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Nom *</label>
@@ -279,16 +335,29 @@ export const AuthScreen: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className={labelCls}>Numéro de téléphone *</label>
-                <input
-                  type="tel"
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Ex: +237 699 00 00 00"
-                  className={inputCls}
-                />
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Numéro de téléphone *</label>
+                  <input
+                    type="tel"
+                    required
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+237 699 00 00 00"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Adresse e-mail *</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="nom@entreprise.com"
+                    className={inputCls}
+                  />
+                </div>
               </div>
 
               <div>
@@ -303,12 +372,50 @@ export const AuthScreen: React.FC = () => {
                 />
               </div>
 
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Mot de passe (min. 6 car.) *</label>
+                  <div className="relative">
+                    <input
+                      type={showPwd ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••"
+                      className={`${inputCls} pr-9`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwd((p) => !p)}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                      aria-label="Afficher le mot de passe"
+                    >
+                      {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className={labelCls}>Confirmer *</label>
+                  <input
+                    type={showPwd ? 'text' : 'password'}
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
               <button
                 type="submit"
-                className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#FC3F1D] hover:bg-[#E03212] text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
+                disabled={busy}
+                className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#FC3F1D] hover:bg-[#E03212] disabled:opacity-60 text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
               >
                 <span>
-                  Valider et continuer avec Google ({pendingAccountType === 'entreprise' ? 'Entreprise' : 'Particulier'})
+                  {busy
+                    ? 'Création du compte...'
+                    : `Créer mon compte (${pendingAccountType === 'entreprise' ? 'Entreprise' : 'Particulier'})`}
                 </span>
                 <ArrowRight className="w-4 h-4" />
               </button>
@@ -317,19 +424,54 @@ export const AuthScreen: React.FC = () => {
               </p>
             </form>
           ) : (
-            <div className="space-y-4 py-2">
+            <form onSubmit={handleLoginSubmit} noValidate className="space-y-4 py-1">
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                Authentifiez votre session Google pour accéder au portail sécurisé. Le mot de passe de votre espace de travail vous sera demandé à l’étape suivante avant d’afficher vos données et métriques.
+                Connectez-vous à votre compte FUREX ERP. Le mot de passe propre à votre espace de travail vous sera ensuite demandé avant l’affichage des données et métriques.
               </p>
+
+              <div>
+                <label className={labelCls}>Adresse e-mail *</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nom@entreprise.com"
+                  className={inputCls}
+                />
+              </div>
+
+              <div>
+                <label className={labelCls}>Mot de passe *</label>
+                <div className="relative">
+                  <input
+                    type={showPwd ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Votre mot de passe"
+                    className={`${inputCls} pr-9`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwd((p) => !p)}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                    aria-label="Afficher le mot de passe"
+                  >
+                    {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
               <button
-                type="button"
-                onClick={handleExistingSignIn}
-                className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#FC3F1D] hover:bg-[#E03212] text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
+                type="submit"
+                disabled={busy}
+                className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#FC3F1D] hover:bg-[#E03212] disabled:opacity-60 text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
               >
-                <span>Se connecter avec Google</span>
+                <span>{busy ? 'Authentification...' : 'Se connecter'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-            </div>
+            </form>
           )}
         </div>
       </main>
@@ -339,7 +481,7 @@ export const AuthScreen: React.FC = () => {
         <span className="font-semibold text-[#111216] dark:text-slate-200">
           FUREX ERP · Progiciel de Gestion Intégré
         </span>
-        <span>Entreprise & Particulier · Accès sécurisé par espace</span>
+        <span>Entreprise & Particulier · Base persistante & Cloudflare Workers</span>
       </footer>
     </div>
   );

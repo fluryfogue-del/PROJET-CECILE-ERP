@@ -1,8 +1,6 @@
 import * as XLSX from 'xlsx';
-import { collection, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
-import { db } from './firebase';
+import { apiRequest } from './apiClient';
 import { todayIso } from './format';
-import { logAudit } from '../services/erpEngine';
 
 export type ImportTarget =
   | 'products'
@@ -573,34 +571,18 @@ export async function commitImportedRows(params: {
   const validRows = params.rows.filter((r) => r.valid);
   if (validRows.length === 0) return 0;
 
-  const chunkSize = 400;
-  for (let i = 0; i < validRows.length; i += chunkSize) {
-    const slice = validRows.slice(i, i + chunkSize);
-    const batch = writeBatch(db);
-    slice.forEach((row) => {
-      const ref = doc(collection(db, `companies/${params.companyId}/${params.target}`));
-      batch.set(ref, {
-        ...row.payload,
-        ownerId: params.ownerId,
-        memberUids: params.memberUids,
-        isDemo: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    });
-    await batch.commit();
-  }
+  const res = await apiRequest<{ imported: number }>(
+    `/api/companies/${params.companyId}/actions/import`,
+    {
+      method: 'POST',
+      companyId: params.companyId,
+      body: {
+        target: params.target,
+        rows: validRows.map((r) => r.payload),
+      },
+      emitMutation: true,
+    }
+  );
 
-  await logAudit({
-    companyId: params.companyId,
-    uid: params.uid,
-    email: params.email,
-    ownerId: params.ownerId,
-    memberUids: params.memberUids,
-    action: 'IMPORT_CSV_EXCEL',
-    module: params.target,
-    summary: `Import CSV/Excel de ${validRows.length} enregistrement(s) dans ${IMPORT_TARGET_META[params.target].label}.`,
-  });
-
-  return validRows.length;
+  return res.imported ?? validRows.length;
 }

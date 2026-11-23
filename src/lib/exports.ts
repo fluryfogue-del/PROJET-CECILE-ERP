@@ -18,65 +18,89 @@ export function exportInvoicePdf(
   currency: CurrencyCode
 ) {
   const doc = new jsPDF();
+  const invCurrency = invoice.currency || currency;
+  const sellerName = invoice.sellerName || company?.name || 'FUREX ERP';
+  const sellerLegal = invoice.sellerLegalForm || company?.legalForm || '';
+  const sellerTaxId = invoice.sellerTaxId || company?.taxId || '';
+  const sellerRccm = invoice.sellerRccm || company?.rccm || '';
+  const sellerAddress = invoice.sellerAddress || company?.address || '';
+  const sellerPhone = invoice.sellerPhone || company?.phone || '';
+  const sellerEmail = invoice.sellerEmail || company?.email || '';
 
   // Header band (FUREX Obsidian)
   doc.setFillColor(17, 18, 22);
-  doc.rect(0, 0, 210, 34, 'F');
+  doc.rect(0, 0, 210, 36, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
-  doc.text(company?.name || 'FUREX ERP', 14, 15);
-  doc.setFontSize(9);
+  doc.text(sellerName, 14, 15);
+  doc.setFontSize(8.5);
   doc.setTextColor(226, 232, 240);
   doc.text(
     [
-      company?.legalForm ? `${company.legalForm}` : '',
-      company?.taxId ? `NIF : ${company.taxId}` : '',
-      company?.rccm ? `RCCM : ${company.rccm}` : '',
+      sellerLegal,
+      sellerTaxId ? `NIF : ${sellerTaxId}` : '',
+      sellerRccm ? `RCCM : ${sellerRccm}` : '',
     ]
       .filter(Boolean)
       .join('  ·  ') || 'Plateforme de gestion intégrée FUREX ERP',
     14,
     22
   );
-  if (company?.address || company?.phone) {
-    doc.text(`${company?.address || ''} ${company?.phone ? `· ${company.phone}` : ''}`, 14, 28);
+  if (sellerAddress || sellerPhone || sellerEmail) {
+    doc.text(
+      [sellerAddress, sellerPhone, sellerEmail].filter(Boolean).join(' · '),
+      14,
+      28
+    );
   }
 
   // Document title on right
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14);
-  doc.text('FACTURE CLIENT', 196, 15, { align: 'right' });
+  doc.setFontSize(13);
+  doc.text(invoice.status === 'brouillon' ? 'FACTURE PROVISOIRE' : 'FACTURE CLIENT', 196, 15, { align: 'right' });
   doc.setFontSize(11);
   doc.text(invoice.number, 196, 23, { align: 'right' });
+  doc.setFontSize(8.5);
+  doc.setTextColor(226, 232, 240);
+  doc.text(`Devise : ${invCurrency}`, 196, 29, { align: 'right' });
 
   // Client & dates block
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(10);
   doc.text('Facturé à :', 14, 46);
-  doc.setFontSize(12);
+  doc.setFontSize(11.5);
   doc.text(invoice.customerName, 14, 52);
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
-  if (invoice.customerEmail) doc.text(invoice.customerEmail, 14, 58);
+  const clientDetails = [
+    invoice.customerTaxId ? `NIF / NUI : ${invoice.customerTaxId}` : '',
+    invoice.customerAddress || '',
+    [invoice.customerPhone, invoice.customerEmail].filter(Boolean).join(' · '),
+  ].filter(Boolean);
+  clientDetails.forEach((line, idx) => {
+    doc.text(line, 14, 57 + idx * 4.5);
+  });
 
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(9);
-  doc.text(`Date d'émission : ${formatDateFr(invoice.date)}`, 140, 46);
-  doc.text(`Échéance : ${formatDateFr(invoice.dueDate)}`, 140, 52);
-  doc.text(`Statut : ${invoice.status.toUpperCase()}`, 140, 58);
+  doc.text(`Date d'émission : ${formatDateFr(invoice.date)}`, 136, 46);
+  doc.text(`Échéance : ${formatDateFr(invoice.dueDate)}`, 136, 52);
+  doc.text(`Conditions : ${invoice.paymentTerms || company?.invoicePaymentTerms || '30 jours net'}`, 136, 58);
+  doc.text(`Statut : ${invoice.status.toUpperCase()}`, 136, 64);
 
   // Table
+  const startY = Math.max(72, 58 + clientDetails.length * 4.5 + 6);
   autoTable(doc, {
-    startY: 68,
+    startY,
     head: [['Réf.', 'Désignation', 'Qté', 'P.U. HT', 'Remise %', 'TVA %', 'Total TTC']],
     body: invoice.lines.map((l) => [
-      l.sku,
+      l.sku || '-',
       l.name,
       String(l.qty),
-      formatMoney(l.unitPrice, currency),
+      formatMoney(l.unitPrice, invCurrency),
       `${l.discountPct}%`,
       `${l.taxRate}%`,
-      formatMoney(l.lineTotal, currency),
+      formatMoney(l.lineTotal, invCurrency),
     ]),
     styles: { fontSize: 8.5, cellPadding: 3 },
     headStyles: { fillColor: [252, 63, 29], textColor: 255 },
@@ -94,32 +118,33 @@ export function exportInvoicePdf(
   doc.setFontSize(9.5);
   doc.setTextColor(51, 65, 85);
   doc.text('Sous-total HT :', summaryX, finalY + 12);
-  doc.text(formatMoney(invoice.subtotal, currency), 196, finalY + 12, { align: 'right' });
+  doc.text(formatMoney(invoice.subtotal, invCurrency), 196, finalY + 12, { align: 'right' });
 
   doc.text('Remises :', summaryX, finalY + 18);
-  doc.text(`- ${formatMoney(invoice.discountTotal, currency)}`, 196, finalY + 18, { align: 'right' });
+  doc.text(`- ${formatMoney(invoice.discountTotal, invCurrency)}`, 196, finalY + 18, { align: 'right' });
 
   doc.text('TVA :', summaryX, finalY + 24);
-  doc.text(formatMoney(invoice.taxTotal, currency), 196, finalY + 24, { align: 'right' });
+  doc.text(formatMoney(invoice.taxTotal, invCurrency), 196, finalY + 24, { align: 'right' });
 
   doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
   doc.text('Net à payer TTC :', summaryX, finalY + 32);
-  doc.text(formatMoney(invoice.total, currency), 196, finalY + 32, { align: 'right' });
+  doc.text(formatMoney(invoice.total, invCurrency), 196, finalY + 32, { align: 'right' });
 
   doc.setFontSize(9);
   doc.setTextColor(22, 163, 74);
   doc.text('Montant réglé :', summaryX, finalY + 39);
-  doc.text(formatMoney(invoice.paidAmount, currency), 196, finalY + 39, { align: 'right' });
+  doc.text(formatMoney(invoice.paidAmount, invCurrency), 196, finalY + 39, { align: 'right' });
 
   doc.setTextColor(220, 38, 38);
   doc.text('Solde restant dû :', summaryX, finalY + 45);
-  doc.text(formatMoney(invoice.balanceDue, currency), 196, finalY + 45, { align: 'right' });
+  doc.text(formatMoney(invoice.balanceDue, invCurrency), 196, finalY + 45, { align: 'right' });
 
-  if (invoice.notes) {
+  const footerNote = invoice.notes || company?.invoiceNotesDefault;
+  if (footerNote) {
     doc.setFontSize(8.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Conditions / Notes : ${invoice.notes}`, 14, finalY + 58);
+    doc.text(`Conditions / Mentions : ${footerNote}`, 14, finalY + 58, { maxWidth: 180 });
   }
 
   doc.save(`${invoice.number}.pdf`);
@@ -128,9 +153,14 @@ export function exportInvoicePdf(
 export function exportSingleInvoiceCsv(invoice: Invoice) {
   const rows = invoice.lines.map((l) => ({
     NumeroFacture: invoice.number,
+    Emetteur: invoice.sellerName || '',
+    NIF_Emetteur: invoice.sellerTaxId || '',
     Date: invoice.date,
     Echeance: invoice.dueDate,
+    Conditions: invoice.paymentTerms || '',
     Client: invoice.customerName,
+    NIF_Client: invoice.customerTaxId || '',
+    AdresseClient: invoice.customerAddress || '',
     SKU: l.sku,
     Article: l.name,
     Quantite: l.qty,
@@ -153,11 +183,18 @@ export function exportSingleInvoiceExcel(invoice: Invoice, company: Company | nu
         name: 'Resume Facture',
         rows: [
           {
-            Emetteur: company?.name || 'FUREX ERP',
+            Emetteur: invoice.sellerName || company?.name || 'FUREX ERP',
+            NIF_Emetteur: invoice.sellerTaxId || company?.taxId || '',
+            RCCM_Emetteur: invoice.sellerRccm || company?.rccm || '',
             NumeroFacture: invoice.number,
             DateEmission: invoice.date,
             Echeance: invoice.dueDate,
+            ConditionsPaiement: invoice.paymentTerms || company?.invoicePaymentTerms || '',
+            Devise: invoice.currency || company?.currency || 'XAF',
             Client: invoice.customerName,
+            NIF_Client: invoice.customerTaxId || '',
+            TelephoneClient: invoice.customerPhone || '',
+            AdresseClient: invoice.customerAddress || '',
             EmailClient: invoice.customerEmail || '',
             SousTotalHT: invoice.subtotal,
             Remises: invoice.discountTotal,
@@ -166,7 +203,7 @@ export function exportSingleInvoiceExcel(invoice: Invoice, company: Company | nu
             MontantPaye: invoice.paidAmount,
             SoldeDu: invoice.balanceDue,
             Statut: invoice.status,
-            Notes: invoice.notes || '',
+            Notes: invoice.notes || company?.invoiceNotesDefault || '',
           },
         ],
       },

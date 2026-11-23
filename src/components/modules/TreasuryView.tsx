@@ -1,11 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, ArrowDownLeft, ArrowUpRight, FileDown, Download, FileSpreadsheet } from 'lucide-react';
-import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { useErp } from '../../contexts/ErpContext';
-import { db } from '../../lib/firebase';
-import { formatDateFr, formatMoney, generateDocNumber, round2, todayIso } from '../../lib/format';
+import { formatDateFr, formatMoney, todayIso } from '../../lib/format';
 import { exportRowsCsv, exportTablePdf, exportWorkbookExcel } from '../../lib/exports';
-import { createErpDoc, postManualJournalEntry } from '../../services/erpEngine';
+import { createErpDoc, recordDirectTreasuryMovement } from '../../services/erpEngine';
 import {
   EmptyState,
   Modal,
@@ -86,59 +84,14 @@ export const TreasuryView: React.FC = () => {
     if (!tAcc || amount <= 0) return;
 
     try {
-      const payRef = doc(collection(db, `companies/${activeCompany.id}/payments`));
-      const tRef = doc(db, `companies/${activeCompany.id}/treasuryAccounts`, tAcc.id);
-      const payNum = generateDocNumber(movForm.direction === 'encaissement' ? 'ENC' : 'DEC');
-
-      await runTransaction(db, async (tx) => {
-        const tSnap = await tx.get(tRef);
-        if (!tSnap.exists()) throw new Error('Compte introuvable.');
-        const delta = movForm.direction === 'encaissement' ? amount : -amount;
-        tx.update(tRef, {
-          balance: round2((tSnap.data().balance || 0) + delta),
-          updatedAt: serverTimestamp(),
-        });
-        tx.set(payRef, {
-          number: payNum,
-          direction: movForm.direction,
-          partnerType: 'autre',
-          partnerName: movForm.partnerName,
-          treasuryAccountId: tAcc.id,
-          treasuryAccountName: tAcc.name,
-          method: movForm.method,
-          amount,
-          date: todayIso(),
-          reference: payNum,
-          note: movForm.note || 'Opération de trésorerie diverse',
-          ownerId,
-          memberUids,
-          isDemo: false,
-          createdAt: serverTimestamp(),
-        });
-      });
-
-      const accCode = tAcc.accountCode || (tAcc.type === 'caisse' ? '571' : '521');
-      await postManualJournalEntry({
+      await recordDirectTreasuryMovement({
         companyId: activeCompany.id,
-        journalCode: tAcc.type === 'caisse' ? 'CA' : 'BQ',
-        date: todayIso(),
-        reference: payNum,
-        label: `${movForm.direction === 'encaissement' ? 'Encaissement' : 'Décaissement'} : ${movForm.partnerName}`,
-        lines:
-          movForm.direction === 'encaissement'
-            ? [
-                { accountCode: accCode, accountName: tAcc.name, debit: amount, credit: 0 },
-                { accountCode: '706', accountName: 'Services vendus', debit: 0, credit: amount },
-              ]
-            : [
-                { accountCode: '624', accountName: 'Entretien, réparations et maintenance', debit: amount, credit: 0 },
-                { accountCode: accCode, accountName: tAcc.name, debit: 0, credit: amount },
-              ],
-        accounts,
-        uid: user.uid,
-        email: user.email || '',
-        ownerId,
-        memberUids,
+        direction: movForm.direction,
+        partnerName: movForm.partnerName,
+        treasuryAccountId: tAcc.id,
+        method: movForm.method,
+        amount,
+        note: movForm.note,
       });
 
       notify('Opération de trésorerie enregistrée.', 'success');

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, FileDown, CheckCircle2, Receipt, CreditCard, ArrowRight, Trash2, Download, FileSpreadsheet, AlertCircle } from 'lucide-react';
+import { Plus, FileDown, CheckCircle2, Receipt, CreditCard, ArrowRight, Trash2, Download, FileSpreadsheet, AlertCircle, Eye } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
 import { addDaysIso, formatDateFr, formatMoney, generateDocNumber, todayIso } from '../../lib/format';
 import {
@@ -18,9 +18,11 @@ import {
   createInvoiceFromOrder,
   deleteErpDoc,
   recordCustomerInvoicePayment,
+  updateInvoiceStatus,
   validateSalesOrderWithStock,
 } from '../../services/erpEngine';
 import { DocumentLine, Invoice, Quote, SalesOrder } from '../../types/erp';
+import { InvoicePreviewModal } from './InvoicePreviewModal';
 import {
   EmptyState,
   Modal,
@@ -56,9 +58,16 @@ export const SalesView: React.FC = () => {
   const [customerId, setCustomerId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [dueDate, setDueDate] = useState(addDaysIso(30));
+  const [paymentTerms, setPaymentTerms] = useState(
+    activeCompany?.invoicePaymentTerms || 'Paiement à 30 jours net'
+  );
+  const [invoiceStatus, setInvoiceStatus] = useState<'emise' | 'brouillon'>('emise');
   const [deductStock, setDeductStock] = useState(true);
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DocumentLine[]>([]);
+
+  // Invoice Preview Modal
+  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
 
   // Payment Modal
   const [payInvoice, setPayInvoice] = useState<Invoice | null>(null);
@@ -78,8 +87,10 @@ export const SalesView: React.FC = () => {
     setCustomerId(customers[0]?.id || '');
     setWarehouseId(warehouses[0]?.id || '');
     setDueDate(addDaysIso(30));
+    setPaymentTerms(activeCompany?.invoicePaymentTerms || 'Paiement à 30 jours net');
+    setInvoiceStatus('emise');
     setDeductStock(products.some((p) => p.stockQty > 0));
-    setNotes('');
+    setNotes(activeCompany?.invoiceNotesDefault || '');
     if (products.length > 0) {
       const p = products[0];
       setLines([
@@ -213,15 +224,20 @@ export const SalesView: React.FC = () => {
           warehouseName: whName,
           lines: totals.lines,
           dueDate,
+          paymentTerms,
           notes,
           deductStock,
+          status: invoiceStatus,
           accounts,
           uid: user.uid,
           email: user.email || '',
           ownerId,
           memberUids,
         });
-        notify(`Facture ${created.number} générée. Vous pouvez l'exporter en PDF, CSV ou Excel.`, 'success');
+        notify(
+          `Facture ${created.number} (${invoiceStatus === 'brouillon' ? 'brouillon' : 'émise'}) enregistrée.`,
+          'success'
+        );
         setTab('invoices');
       }
       setDocModal(null);
@@ -328,6 +344,32 @@ export const SalesView: React.FC = () => {
       setPayInvoice(null);
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Erreur paiement', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleEmitDraftInvoice = async (inv: Invoice) => {
+    setBusy(true);
+    try {
+      await updateInvoiceStatus(activeCompany.id, inv.id, 'emise');
+      notify(`Facture ${inv.number} émise et comptabilisée.`, 'success');
+      setPreviewInvoice(null);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Erreur émission', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancelInvoice = async (inv: Invoice) => {
+    setBusy(true);
+    try {
+      await updateInvoiceStatus(activeCompany.id, inv.id, 'annulee');
+      notify(`Facture ${inv.number} annulée.`, 'info');
+      setPreviewInvoice(null);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Annulation impossible', 'error');
     } finally {
       setBusy(false);
     }
@@ -492,7 +534,15 @@ export const SalesView: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                 {invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                    <td className="py-3 px-4 font-mono font-semibold text-slate-900 dark:text-white">{inv.number}</td>
+                    <td className="py-3 px-4 font-mono font-semibold text-slate-900 dark:text-white">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewInvoice(inv)}
+                        className="hover:text-[#FC3F1D] hover:underline cursor-pointer"
+                      >
+                        {inv.number}
+                      </button>
+                    </td>
                     <td className="py-3 px-4 font-medium">{inv.customerName}</td>
                     <td className="py-3 px-4 text-slate-500">
                       {formatDateFr(inv.date)} · {formatDateFr(inv.dueDate)}
@@ -516,13 +566,33 @@ export const SalesView: React.FC = () => {
                             ? 'warning'
                             : inv.status === 'annulee'
                             ? 'danger'
+                            : inv.status === 'brouillon'
+                            ? 'neutral'
                             : 'info'
                         }
                       />
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
-                        {inv.balanceDue > 0 && inv.status !== 'annulee' && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewInvoice(inv)}
+                          className="px-2 py-1 text-[11px] font-semibold border border-slate-200 dark:border-slate-700 rounded hover:border-[#FC3F1D] hover:text-[#FC3F1D]"
+                          title="Aperçu modèle facture"
+                        >
+                          <Eye className="w-3 h-3 inline mr-1" />
+                          Aperçu
+                        </button>
+                        {inv.status === 'brouillon' && (
+                          <button
+                            type="button"
+                            onClick={() => handleEmitDraftInvoice(inv)}
+                            className="px-2 py-1 text-[11px] font-semibold bg-[#FC3F1D] hover:bg-[#E03212] text-white rounded"
+                          >
+                            Émettre
+                          </button>
+                        )}
+                        {inv.balanceDue > 0 && inv.status !== 'brouillon' && inv.status !== 'annulee' && (
                           <button
                             type="button"
                             onClick={() => openPaymentModal(inv)}
@@ -814,17 +884,41 @@ export const SalesView: React.FC = () => {
           </div>
 
           {docModal === 'invoice' && (
-            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={deductStock}
-                onChange={(e) => setDeductStock(e.target.checked)}
-                className="rounded border-slate-300 text-[#FC3F1D] focus:ring-[#FC3F1D]"
-              />
-              <span>
-                Déduire automatiquement les quantités du stock de l’entrepôt (décochez si article sans stock ou prestation directe)
-              </span>
-            </label>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Conditions de paiement</label>
+                  <input
+                    className={inputCls}
+                    value={paymentTerms}
+                    onChange={(e) => setPaymentTerms(e.target.value)}
+                    placeholder="Paiement à 30 jours net"
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Mode de création</label>
+                  <select
+                    className={inputCls}
+                    value={invoiceStatus}
+                    onChange={(e) => setInvoiceStatus(e.target.value as 'emise' | 'brouillon')}
+                  >
+                    <option value="emise">Émettre immédiatement (Comptabiliser OHADA)</option>
+                    <option value="brouillon">Enregistrer en brouillon</option>
+                  </select>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={deductStock}
+                  onChange={(e) => setDeductStock(e.target.checked)}
+                  className="rounded border-slate-300 text-[#FC3F1D] focus:ring-[#FC3F1D]"
+                />
+                <span>
+                  Déduire automatiquement les quantités du stock de l’entrepôt (si facture émise)
+                </span>
+              </label>
+            </div>
           )}
 
           <div className="space-y-2">
@@ -997,6 +1091,18 @@ export const SalesView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <InvoicePreviewModal
+        invoice={previewInvoice}
+        company={activeCompany}
+        currency={currency}
+        busy={busy}
+        onClose={() => setPreviewInvoice(null)}
+        onEmitDraft={handleEmitDraftInvoice}
+        onCancelInvoice={handleCancelInvoice}
+        onOpenPayment={openPaymentModal}
+        onExported={(msg) => notify(msg, 'success')}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { Timestamp } from 'firebase/firestore';
+export type TimestampLike = string | { seconds: number; nanoseconds?: number } | null;
 
 export type AccountType = 'entreprise' | 'particulier';
 
@@ -41,8 +41,8 @@ export interface UserProfile {
   defaultCompanyId?: string;
   language?: 'fr' | 'en';
   accountType?: AccountType;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Company {
@@ -61,14 +61,18 @@ export interface Company {
   address?: string;
   phone?: string;
   email?: string;
+  invoicePrefix?: string;
+  invoicePaymentTerms?: string;
+  invoiceNotesDefault?: string;
+  hasPassword?: boolean;
   passwordSalt?: string;
   passwordHash?: string;
   enabledModules?: string[];
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface CompanyMember {
@@ -85,8 +89,8 @@ export interface CompanyMember {
   active: boolean;
   ownerId: string;
   memberUids: string[];
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Department {
@@ -98,8 +102,8 @@ export interface Department {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface RoleDefinition {
@@ -113,8 +117,8 @@ export interface RoleDefinition {
   canDelete: boolean;
   ownerId: string;
   memberUids: string[];
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface AuditLog {
@@ -128,7 +132,7 @@ export interface AuditLog {
   summary: string;
   ownerId: string;
   memberUids: string[];
-  createdAt?: Timestamp;
+  createdAt?: TimestampLike;
 }
 
 export interface Lead {
@@ -144,8 +148,8 @@ export interface Lead {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Customer {
@@ -164,8 +168,8 @@ export interface Customer {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Opportunity {
@@ -180,8 +184,8 @@ export interface Opportunity {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Interaction {
@@ -196,7 +200,7 @@ export interface Interaction {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
+  createdAt?: TimestampLike;
 }
 
 export interface Category {
@@ -207,8 +211,8 @@ export interface Category {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Warehouse {
@@ -221,8 +225,8 @@ export interface Warehouse {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Product {
@@ -242,8 +246,8 @@ export interface Product {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface StockMovement {
@@ -267,7 +271,7 @@ export interface StockMovement {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
+  createdAt?: TimestampLike;
 }
 
 export interface DocumentLine {
@@ -300,8 +304,8 @@ export interface Quote {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface SalesOrder {
@@ -323,8 +327,8 @@ export interface SalesOrder {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Invoice {
@@ -334,6 +338,18 @@ export interface Invoice {
   customerId: string;
   customerName: string;
   customerEmail?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  customerTaxId?: string;
+  sellerName?: string;
+  sellerLegalForm?: string;
+  sellerTaxId?: string;
+  sellerRccm?: string;
+  sellerAddress?: string;
+  sellerPhone?: string;
+  sellerEmail?: string;
+  currency?: CurrencyCode;
+  paymentTerms?: string;
   date: string;
   dueDate?: string;
   status: 'brouillon' | 'emise' | 'partielle' | 'payee' | 'en_retard' | 'annulee';
@@ -348,8 +364,8 @@ export interface Invoice {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Supplier {
@@ -365,8 +381,8 @@ export interface Supplier {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface PurchaseRequest {
@@ -382,8 +398,8 @@ export interface PurchaseRequest {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface PurchaseOrder {
@@ -404,8 +420,8 @@ export interface PurchaseOrder {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface SupplierInvoice {
@@ -423,8 +439,8 @@ export interface SupplierInvoice {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Account {
@@ -439,8 +455,8 @@ export interface Account {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface JournalLine {
@@ -467,7 +483,7 @@ export interface JournalEntry {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
+  createdAt?: TimestampLike;
 }
 
 export interface TreasuryAccount {
@@ -482,8 +498,8 @@ export interface TreasuryAccount {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Payment {
@@ -505,7 +521,7 @@ export interface Payment {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
+  createdAt?: TimestampLike;
 }
 
 export interface Employee {
@@ -526,8 +542,8 @@ export interface Employee {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface LeaveRequest {
@@ -543,8 +559,8 @@ export interface LeaveRequest {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface Payroll {
@@ -562,8 +578,8 @@ export interface Payroll {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface NotificationItem {
@@ -575,7 +591,7 @@ export interface NotificationItem {
   read: boolean;
   ownerId: string;
   memberUids: string[];
-  createdAt?: Timestamp;
+  createdAt?: TimestampLike;
 }
 
 export interface ModuleRecord {
@@ -593,8 +609,8 @@ export interface ModuleRecord {
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }
 
 export interface CustomModule {
@@ -608,6 +624,6 @@ export interface CustomModule {
   active: boolean;
   ownerId: string;
   memberUids: string[];
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: TimestampLike;
+  updatedAt?: TimestampLike;
 }

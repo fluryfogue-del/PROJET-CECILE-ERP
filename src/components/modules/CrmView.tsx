@@ -373,8 +373,7 @@ export const CrmView: React.FC = () => {
           isDemo: false,
         },
         ownerId,
-        memberUids,
-        false
+        memberUids
       );
       notify('Interaction enregistrée dans l’historique.', 'success');
       setIntModal(false);

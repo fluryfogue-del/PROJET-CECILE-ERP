@@ -246,6 +246,7 @@ export const PurchasesView: React.FC = () => {
           companyId: activeCompany.id,
           po: createdPo,
           warehouseName: whName,
+          autoInvoice: true,
           accounts,
           uid: user.uid,
           email: user.email || '',
@@ -301,6 +302,7 @@ export const PurchasesView: React.FC = () => {
         companyId: activeCompany.id,
         po,
         warehouseName: whName,
+        autoInvoice: true,
         accounts,
         uid: user.uid,
         email: user.email || '',
@@ -323,7 +325,7 @@ export const PurchasesView: React.FC = () => {
     try {
       await recordSupplierInvoicePayment({
         companyId: activeCompany.id,
-        sinv: paySinv,
+        supplierInvoice: paySinv,
         treasuryAccount: treas,
         amount: Number(payAmount),
         method: payMethod,

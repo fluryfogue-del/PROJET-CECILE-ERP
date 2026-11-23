@@ -18,7 +18,6 @@ import { useErp } from '../contexts/ErpContext';
 import { MODULE_CATALOG, MODULE_FAMILIES, MODULE_PRESETS, ModuleFamily } from '../data/moduleCatalog';
 import { createCompanyWorkspace } from '../services/erpEngine';
 import {
-  hashWorkspacePassword,
   isNonEmptyText,
   validatePersonalDetails,
   validateWorkspacePasswordPair,
@@ -180,7 +179,6 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
 
     setBusy(true);
     try {
-      const { salt, hash } = await hashWorkspacePassword(password);
       await updateUserAccountType(accountType);
       const companyId = await createCompanyWorkspace({
         uid: user.uid,
@@ -199,8 +197,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
         accountType,
         currency,
         accountingStandard,
-        passwordSalt: salt,
-        passwordHash: hash,
+        password,
         enabledModules: selectedModules,
         withDemoData: false,
       });
