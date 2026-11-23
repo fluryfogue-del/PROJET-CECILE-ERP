@@ -34,19 +34,19 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#070D19] p-6">
           <div className="max-w-lg w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4">
-            <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
+            <div className="flex items-center gap-3 text-[#FC3F1D]">
               <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h2 className="text-lg font-semibold">Interruption de session NEXUS ERP</h2>
+              <h2 className="text-lg font-semibold">Interruption de session FUREX ERP</h2>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed break-words">
               {friendlyMsg}
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-700 hover:bg-blue-800 text-white rounded-md transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-[#FC3F1D] hover:bg-[#E03212] text-white rounded-xl transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
-              Recharger l’application
+              Recharger l’espace de travail
             </button>
           </div>
         </div>

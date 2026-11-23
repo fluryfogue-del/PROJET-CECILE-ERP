@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, ArrowRightLeft, AlertTriangle, Edit3, Trash2 } from 'lucide-react';
+import { Plus, ArrowRightLeft, AlertTriangle, Edit3, Trash2, Upload, Download, FileSpreadsheet } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
-import { formatDateFr, formatMoney, formatNumber } from '../../lib/format';
+import { formatDateFr, formatMoney, formatNumber, todayIso } from '../../lib/format';
+import { exportRowsCsv, exportWorkbookExcel } from '../../lib/exports';
 import { createErpDoc, deleteErpDoc, executeStockMovement, updateErpDoc } from '../../services/erpEngine';
 import { Product } from '../../types/erp';
+import { ImportSpreadsheetModal } from '../ImportSpreadsheetModal';
 import {
   EmptyState,
   Modal,
@@ -37,9 +39,9 @@ export const InventoryView: React.FC = () => {
     unit: 'Unité',
     purchasePrice: 0,
     salePrice: 0,
-    taxRate: 19.25,
+    taxRate: 0,
     stockQty: 0,
-    minStock: 5,
+    minStock: 0,
   });
 
   // Movement Modal
@@ -60,6 +62,7 @@ export const InventoryView: React.FC = () => {
   // Category Modal
   const [catModal, setCatModal] = useState(false);
   const [catForm, setCatForm] = useState({ code: '', name: '', description: '' });
+  const [importOpen, setImportOpen] = useState(false);
 
   const currency = activeCompany?.currency || 'XAF';
 
@@ -98,9 +101,9 @@ export const InventoryView: React.FC = () => {
         unit: 'Unité',
         purchasePrice: 0,
         salePrice: 0,
-        taxRate: 19.25,
+        taxRate: 0,
         stockQty: 0,
-        minStock: 5,
+        minStock: 0,
       });
     }
     setProdModal(true);
@@ -108,20 +111,27 @@ export const InventoryView: React.FC = () => {
 
   const saveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanSku = prodForm.sku.trim();
+    const cleanName = prodForm.name.trim();
+    const cleanUnit = prodForm.unit.trim() || 'Unité';
+    if (!cleanSku || cleanName.length < 2) {
+      notify('La référence SKU et la désignation du produit sont obligatoires.', 'error');
+      return;
+    }
     const cat = categories.find((c) => c.id === prodForm.categoryId);
     const defaultWh = warehouses[0]?.id;
     try {
       if (editingProd) {
         await updateErpDoc(activeCompany.id, 'products', editingProd.id, {
-          sku: prodForm.sku,
-          name: prodForm.name,
+          sku: cleanSku,
+          name: cleanName,
           categoryId: prodForm.categoryId,
           categoryName: cat?.name || 'Général',
-          unit: prodForm.unit,
-          purchasePrice: Number(prodForm.purchasePrice),
-          salePrice: Number(prodForm.salePrice),
-          taxRate: Number(prodForm.taxRate),
-          minStock: Number(prodForm.minStock),
+          unit: cleanUnit,
+          purchasePrice: Number(prodForm.purchasePrice) || 0,
+          salePrice: Number(prodForm.salePrice) || 0,
+          taxRate: Number(prodForm.taxRate) || 0,
+          minStock: Number(prodForm.minStock) || 0,
         });
         notify('Article mis à jour.', 'success');
       } else {
@@ -130,13 +140,16 @@ export const InventoryView: React.FC = () => {
           'products',
           {
             ...prodForm,
+            sku: cleanSku,
+            name: cleanName,
+            unit: cleanUnit,
             categoryName: cat?.name || 'Général',
-            purchasePrice: Number(prodForm.purchasePrice),
-            salePrice: Number(prodForm.salePrice),
-            taxRate: Number(prodForm.taxRate),
-            stockQty: Number(prodForm.stockQty),
-            minStock: Number(prodForm.minStock),
-            warehouseStocks: defaultWh ? { [defaultWh]: Number(prodForm.stockQty) } : {},
+            purchasePrice: Number(prodForm.purchasePrice) || 0,
+            salePrice: Number(prodForm.salePrice) || 0,
+            taxRate: Number(prodForm.taxRate) || 0,
+            stockQty: Number(prodForm.stockQty) || 0,
+            minStock: Number(prodForm.minStock) || 0,
+            warehouseStocks: defaultWh ? { [defaultWh]: Number(prodForm.stockQty) || 0 } : {},
             trackStock: true,
             isDemo: false,
           },
@@ -193,6 +206,105 @@ export const InventoryView: React.FC = () => {
     }
   };
 
+  const exportInventoryCsv = () => {
+    if (tab === 'movements') {
+      exportRowsCsv(
+        stockMovements.map((m) => ({
+          Date: m.date,
+          Type: m.type,
+          Article: m.productName,
+          Entrepot: m.warehouseName,
+          Destination: m.toWarehouseName || '',
+          Quantite: m.quantity,
+          Valorisation: m.totalValue,
+          Reference: m.referenceNumber || m.note || '',
+        })),
+        `Mouvements_Stock_${todayIso()}`
+      );
+    } else if (tab === 'warehouses') {
+      exportRowsCsv(
+        warehouses.map((w) => ({
+          Code: w.code,
+          Nom: w.name,
+          Localisation: w.location || '',
+          Responsable: w.managerName || '',
+          Principal: w.isDefault ? 'Oui' : 'Non',
+        })),
+        `Entrepots_${todayIso()}`
+      );
+    } else if (tab === 'categories') {
+      exportRowsCsv(
+        categories.map((c) => ({
+          Code: c.code,
+          Nom: c.name,
+          Description: c.description || '',
+        })),
+        `Categories_${todayIso()}`
+      );
+    } else {
+      exportRowsCsv(
+        products.map((p) => ({
+          SKU: p.sku,
+          Designation: p.name,
+          Categorie: p.categoryName || 'Général',
+          Unite: p.unit || 'Unité',
+          PrixAchat: p.purchasePrice,
+          PrixVente: p.salePrice,
+          TVA: p.taxRate ?? 19.25,
+          Stock: p.stockQty,
+          SeuilMin: p.minStock,
+        })),
+        `Catalogue_Articles_${todayIso()}`
+      );
+    }
+    notify('Export CSV téléchargé.', 'success');
+  };
+
+  const exportInventoryExcel = () => {
+    exportWorkbookExcel(
+      [
+        {
+          name: 'Articles & Stocks',
+          rows: products.map((p) => ({
+            SKU: p.sku,
+            Designation: p.name,
+            Categorie: p.categoryName || 'Général',
+            Unite: p.unit || 'Unité',
+            PrixAchat: p.purchasePrice,
+            PrixVente: p.salePrice,
+            TVA: p.taxRate ?? 19.25,
+            Stock: p.stockQty,
+            SeuilMin: p.minStock,
+          })),
+        },
+        {
+          name: 'Mouvements Stock',
+          rows: stockMovements.map((m) => ({
+            Date: m.date,
+            Type: m.type,
+            Article: m.productName,
+            Entrepot: m.warehouseName,
+            Destination: m.toWarehouseName || '',
+            Quantite: m.quantity,
+            Valorisation: m.totalValue,
+            Reference: m.referenceNumber || m.note || '',
+          })),
+        },
+        {
+          name: 'Entrepots',
+          rows: warehouses.map((w) => ({
+            Code: w.code,
+            Nom: w.name,
+            Localisation: w.location || '',
+            Responsable: w.managerName || '',
+          })),
+        },
+      ],
+      `Stocks_FUREX_${todayIso()}`
+    );
+    notify('Classeur Excel téléchargé.', 'success');
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -200,6 +312,15 @@ export const InventoryView: React.FC = () => {
         subtitle="Catalogue articles, valorisation, seuils minimum, transferts inter-entrepôts et traçabilité complète"
         actions={
           <>
+            <button type="button" onClick={() => setImportOpen(true)} className={btnSecondaryCls}>
+              <Upload className="w-3.5 h-3.5" /> Importer CSV/Excel
+            </button>
+            <button type="button" onClick={exportInventoryCsv} className={btnSecondaryCls}>
+              <Download className="w-3.5 h-3.5" /> CSV
+            </button>
+            <button type="button" onClick={exportInventoryExcel} className={btnSecondaryCls}>
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+            </button>
             <button type="button" onClick={openMovementModal} className={btnSecondaryCls}>
               <ArrowRightLeft className="w-3.5 h-3.5" /> Mouvement / Transfert
             </button>
@@ -212,21 +333,21 @@ export const InventoryView: React.FC = () => {
 
       {/* Valuation Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Quantité totale en stock</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums">{formatNumber(valuation.totalUnits)} unités</p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Valorisation (Coût d’achat)</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums">{formatMoney(valuation.costValue, currency)}</p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Valeur potentielle (Vente HT)</p>
-          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-blue-700 dark:text-blue-400">
+          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#FC3F1D]">
             {formatMoney(valuation.retailValue, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Alertes stock minimum</p>
           <p className={`mt-1 font-mono text-lg font-bold tabular-nums ${valuation.alertsCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
             {valuation.alertsCount} article(s)
@@ -246,7 +367,7 @@ export const InventoryView: React.FC = () => {
       />
 
       {tab === 'products' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {products.length === 0 ? (
             <EmptyState
               title="Aucun produit"
@@ -309,7 +430,7 @@ export const InventoryView: React.FC = () => {
       )}
 
       {tab === 'movements' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {stockMovements.length === 0 ? (
             <EmptyState title="Aucun mouvement" description="Les entrées, sorties et transferts apparaîtront ici." />
           ) : (
@@ -342,7 +463,7 @@ export const InventoryView: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold">{m.quantity}</td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums">{formatMoney(m.totalValue, currency)}</td>
-                    <td className="py-3 px-4 text-slate-500">{m.referenceNumber || m.note || '—'}</td>
+                    <td className="py-3 px-4 text-slate-500">{m.referenceNumber || m.note || '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -360,13 +481,13 @@ export const InventoryView: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {warehouses.map((w) => (
-              <div key={w.id} className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+              <div key={w.id} className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-blue-700 dark:text-blue-400 font-semibold">{w.code}</span>
+                  <span className="font-mono text-xs text-[#FC3F1D] font-semibold">{w.code}</span>
                   {w.isDefault && <StatusLabel label="Principal" tone="info" />}
                 </div>
                 <p className="font-display font-semibold text-sm mt-1">{w.name}</p>
-                <p className="text-xs text-slate-500 mt-1">{w.location || 'Adresse non renseignée'} · Resp : {w.managerName || '—'}</p>
+                <p className="text-xs text-slate-500 mt-1">{w.location || 'Adresse non renseignée'} · Resp : {w.managerName || '-'}</p>
               </div>
             ))}
           </div>
@@ -380,11 +501,11 @@ export const InventoryView: React.FC = () => {
               <Plus className="w-3.5 h-3.5" /> Nouvelle catégorie
             </button>
           </div>
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-800">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-800">
             {categories.map((c) => (
               <div key={c.id} className="p-4 flex items-center justify-between">
                 <div>
-                  <span className="font-mono text-xs text-blue-700 dark:text-blue-400 mr-2">{c.code}</span>
+                  <span className="font-mono text-xs text-[#FC3F1D] mr-2">{c.code}</span>
                   <span className="text-sm font-semibold">{c.name}</span>
                   {c.description && <p className="text-xs text-slate-500 mt-0.5">{c.description}</p>}
                 </div>
@@ -412,7 +533,7 @@ export const InventoryView: React.FC = () => {
             <div>
               <label className={labelCls}>Catégorie</label>
               <select className={inputCls} value={prodForm.categoryId} onChange={(e) => setProdForm({ ...prodForm, categoryId: e.target.value })}>
-                <option value="">— Général —</option>
+                <option value="">Général</option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -429,6 +550,10 @@ export const InventoryView: React.FC = () => {
             <div>
               <label className={labelCls}>Prix de vente ({currency})</label>
               <input type="number" min="0" required className={inputCls} value={prodForm.salePrice} onChange={(e) => setProdForm({ ...prodForm, salePrice: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label className={labelCls}>TVA (%)</label>
+              <input type="number" min="0" max="100" step="0.01" className={inputCls} value={prodForm.taxRate} onChange={(e) => setProdForm({ ...prodForm, taxRate: Number(e.target.value) })} />
             </div>
             {!editingProd && (
               <div>
@@ -465,7 +590,7 @@ export const InventoryView: React.FC = () => {
               <label className={labelCls}>Article *</label>
               <select required className={inputCls} value={movForm.productId} onChange={(e) => setMovForm({ ...movForm, productId: e.target.value })}>
                 {products.map((p) => (
-                  <option key={p.id} value={p.id}>{p.sku} — {p.name} ({p.stockQty})</option>
+                  <option key={p.id} value={p.id}>{p.sku} · {p.name} ({p.stockQty})</option>
                 ))}
               </select>
             </div>
@@ -572,6 +697,12 @@ export const InventoryView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <ImportSpreadsheetModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        defaultTarget="products"
+      />
     </div>
   );
 };

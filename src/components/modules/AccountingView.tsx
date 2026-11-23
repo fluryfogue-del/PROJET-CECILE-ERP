@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, FileDown, FileSpreadsheet } from 'lucide-react';
+import { Plus, FileDown, FileSpreadsheet, Upload, Download } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
 import { formatDateFr, formatMoney, todayIso } from '../../lib/format';
-import { exportTablePdf, exportWorkbookExcel } from '../../lib/exports';
+import { exportRowsCsv, exportTablePdf, exportWorkbookExcel } from '../../lib/exports';
 import { createErpDoc, postManualJournalEntry } from '../../services/erpEngine';
 import { JournalLine } from '../../types/erp';
+import { ImportSpreadsheetModal } from '../ImportSpreadsheetModal';
 import {
   EmptyState,
   Modal,
@@ -33,6 +34,7 @@ export const AccountingView: React.FC = () => {
 
   // New Account Modal
   const [accModal, setAccModal] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [accForm, setAccForm] = useState({
     code: '',
     name: '',
@@ -229,13 +231,63 @@ export const AccountingView: React.FC = () => {
     );
   };
 
+  const exportAccountingCsv = () => {
+    if (tab === 'journal') {
+      exportRowsCsv(
+        journalEntries.map((j) => ({
+          Numero: j.number,
+          Date: j.date,
+          Journal: j.journalCode,
+          Reference: j.reference || '',
+          Libelle: j.label,
+          Debit: j.totalDebit,
+          Credit: j.totalCredit,
+        })),
+        `Journal_Comptable_${todayIso()}`
+      );
+    } else if (tab === 'ledger') {
+      exportRowsCsv(
+        ledgerRows.map((r) => ({
+          Compte: selectedAccountCode,
+          Date: r.date,
+          Piece: r.number,
+          Journal: r.journal,
+          Libelle: r.label,
+          Debit: r.debit,
+          Credit: r.credit,
+        })),
+        `Grand_Livre_${selectedAccountCode}_${todayIso()}`
+      );
+    } else {
+      exportRowsCsv(
+        sortedAccounts.map((a) => ({
+          Code: a.code,
+          Intitule: a.name,
+          Classe: a.classNumber,
+          Nature: a.type,
+          TotalDebit: a.balanceDebit,
+          TotalCredit: a.balanceCredit,
+          Solde: a.balanceDebit - a.balanceCredit,
+        })),
+        `Balance_Comptable_${todayIso()}`
+      );
+    }
+    notify('Export CSV comptable téléchargé.', 'success');
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title={`Comptabilité Générale (${activeCompany.accountingStandard})`}
-        subtitle="Plan comptable OHADA classes 1–8, journal en partie double, grand livre, balance, bilan et compte de résultat"
+        subtitle="Plan comptable OHADA classes 1 à 8, journal en partie double, grand livre, balance, bilan et compte de résultat"
         actions={
           <>
+            <button type="button" onClick={() => setImportOpen(true)} className={btnSecondaryCls}>
+              <Upload className="w-3.5 h-3.5" /> Importer CSV/Excel
+            </button>
+            <button type="button" onClick={exportAccountingCsv} className={btnSecondaryCls}>
+              <Download className="w-3.5 h-3.5" /> CSV
+            </button>
             <button type="button" onClick={exportBalancePdf} className={btnSecondaryCls}>
               <FileDown className="w-3.5 h-3.5" /> Balance PDF
             </button>
@@ -254,19 +306,19 @@ export const AccountingView: React.FC = () => {
 
       {/* Receivables / Payables / Net Result Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Créances clients (411)</p>
-          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-blue-700 dark:text-blue-400">
+          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#FC3F1D]">
             {formatMoney(statements.totalCreances, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Dettes fournisseurs (401)</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums text-amber-600 dark:text-amber-400">
             {formatMoney(statements.totalDettes, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Résultat comptable net (Produits - Charges)</p>
           <p className={`mt-1 font-mono text-lg font-bold tabular-nums ${statements.resultatNet >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
             {formatMoney(statements.resultatNet, currency)}
@@ -287,7 +339,7 @@ export const AccountingView: React.FC = () => {
       />
 
       {tab === 'journal' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-200 dark:divide-slate-800">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-200 dark:divide-slate-800">
           {journalEntries.length === 0 ? (
             <EmptyState
               title="Aucune écriture comptable"
@@ -311,13 +363,13 @@ export const AccountingView: React.FC = () => {
                   <tbody>
                     {entry.lines.map((l, idx) => (
                       <tr key={idx} className="border-t border-slate-100 dark:border-slate-800/70">
-                        <td className="py-1.5 w-24 font-mono text-blue-700 dark:text-blue-400">{l.accountCode}</td>
+                        <td className="py-1.5 w-24 font-mono text-[#FC3F1D]">{l.accountCode}</td>
                         <td className="py-1.5 text-slate-700 dark:text-slate-300">{l.accountName}</td>
                         <td className="py-1.5 text-right font-mono tabular-nums w-36">
-                          {l.debit > 0 ? formatMoney(l.debit, currency) : '—'}
+                          {l.debit > 0 ? formatMoney(l.debit, currency) : '-'}
                         </td>
                         <td className="py-1.5 text-right font-mono tabular-nums w-36">
-                          {l.credit > 0 ? formatMoney(l.credit, currency) : '—'}
+                          {l.credit > 0 ? formatMoney(l.credit, currency) : '-'}
                         </td>
                       </tr>
                     ))}
@@ -330,7 +382,7 @@ export const AccountingView: React.FC = () => {
       )}
 
       {tab === 'accounts' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
@@ -343,7 +395,7 @@ export const AccountingView: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
               {sortedAccounts.map((acc) => (
                 <tr key={acc.id}>
-                  <td className="py-2.5 px-4 font-mono font-semibold text-blue-700 dark:text-blue-400">{acc.code}</td>
+                  <td className="py-2.5 px-4 font-mono font-semibold text-[#FC3F1D]">{acc.code}</td>
                   <td className="py-2.5 px-4 font-medium">{acc.name}</td>
                   <td className="py-2.5 px-4 font-mono">Classe {acc.classNumber}</td>
                   <td className="py-2.5 px-4"><StatusLabel label={acc.type} tone="neutral" /></td>
@@ -359,16 +411,16 @@ export const AccountingView: React.FC = () => {
           <div className="flex items-center gap-3">
             <label className="text-xs font-medium text-slate-600 dark:text-slate-300">Compte du Grand Livre :</label>
             <select
-              className="px-3 py-1.5 text-xs bg-white dark:bg-[#0B1426] border border-slate-300 dark:border-slate-700 rounded-md"
+              className="px-3 py-1.5 text-xs bg-white dark:bg-[#16181F] border border-slate-300 dark:border-slate-700 rounded-md"
               value={selectedAccountCode}
               onChange={(e) => setSelectedAccountCode(e.target.value)}
             >
               {sortedAccounts.map((a) => (
-                <option key={a.id} value={a.code}>{a.code} — {a.name}</option>
+                <option key={a.id} value={a.code}>{a.code} · {a.name}</option>
               ))}
             </select>
           </div>
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
             {ledgerRows.length === 0 ? (
               <EmptyState title="Aucun mouvement sur ce compte" description="Sélectionnez un autre compte ou saisissez une écriture." />
             ) : (
@@ -388,8 +440,8 @@ export const AccountingView: React.FC = () => {
                       <td className="py-2.5 px-4 text-slate-500">{formatDateFr(r.date)}</td>
                       <td className="py-2.5 px-4 font-mono">{r.number}</td>
                       <td className="py-2.5 px-4">{r.label}</td>
-                      <td className="py-2.5 px-4 text-right font-mono tabular-nums">{r.debit > 0 ? formatMoney(r.debit, currency) : '—'}</td>
-                      <td className="py-2.5 px-4 text-right font-mono tabular-nums">{r.credit > 0 ? formatMoney(r.credit, currency) : '—'}</td>
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums">{r.debit > 0 ? formatMoney(r.debit, currency) : '-'}</td>
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums">{r.credit > 0 ? formatMoney(r.credit, currency) : '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -400,7 +452,7 @@ export const AccountingView: React.FC = () => {
       )}
 
       {tab === 'balance' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
@@ -422,10 +474,10 @@ export const AccountingView: React.FC = () => {
                     <td className="py-2.5 px-4 text-right font-mono tabular-nums">{formatMoney(a.balanceDebit, currency)}</td>
                     <td className="py-2.5 px-4 text-right font-mono tabular-nums">{formatMoney(a.balanceCredit, currency)}</td>
                     <td className="py-2.5 px-4 text-right font-mono tabular-nums font-medium">
-                      {net > 0 ? formatMoney(net, currency) : '—'}
+                      {net > 0 ? formatMoney(net, currency) : '-'}
                     </td>
                     <td className="py-2.5 px-4 text-right font-mono tabular-nums font-medium">
-                      {net < 0 ? formatMoney(-net, currency) : '—'}
+                      {net < 0 ? formatMoney(-net, currency) : '-'}
                     </td>
                   </tr>
                 );
@@ -438,12 +490,12 @@ export const AccountingView: React.FC = () => {
       {tab === 'statements' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Bilan */}
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
             <h3 className="font-display text-sm font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2">
               Bilan Synthétique ({activeCompany.accountingStandard})
             </h3>
             <div className="space-y-2 text-xs">
-              <p className="font-semibold text-blue-700 dark:text-blue-400">ACTIF</p>
+              <p className="font-semibold text-[#FC3F1D]">ACTIF</p>
               {statements.actifs.map((a) => (
                 <div key={a.id} className="flex justify-between">
                   <span>{a.code} · {a.name}</span>
@@ -456,7 +508,7 @@ export const AccountingView: React.FC = () => {
               </div>
             </div>
             <div className="space-y-2 text-xs pt-2">
-              <p className="font-semibold text-blue-700 dark:text-blue-400">PASSIF</p>
+              <p className="font-semibold text-[#FC3F1D]">PASSIF</p>
               {statements.passifs.map((a) => (
                 <div key={a.id} className="flex justify-between">
                   <span>{a.code} · {a.name}</span>
@@ -471,7 +523,7 @@ export const AccountingView: React.FC = () => {
           </div>
 
           {/* Compte de résultat */}
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
             <h3 className="font-display text-sm font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2">
               Compte de Résultat
             </h3>
@@ -520,7 +572,7 @@ export const AccountingView: React.FC = () => {
               <input required className={inputCls} value={accForm.code} onChange={(e) => setAccForm({ ...accForm, code: e.target.value })} placeholder="605" />
             </div>
             <div>
-              <label className={labelCls}>Classe OHADA (1–8)</label>
+              <label className={labelCls}>Classe OHADA (1 à 8)</label>
               <input type="number" min="1" max="8" required className={inputCls} value={accForm.classNumber} onChange={(e) => setAccForm({ ...accForm, classNumber: Number(e.target.value) })} />
             </div>
           </div>
@@ -551,11 +603,11 @@ export const AccountingView: React.FC = () => {
             <div>
               <label className={labelCls}>Journal</label>
               <select className={inputCls} value={journalCode} onChange={(e) => setJournalCode(e.target.value as typeof journalCode)}>
-                <option value="OD">OD — Opérations diverses</option>
-                <option value="VE">VE — Ventes</option>
-                <option value="AC">AC — Achats</option>
-                <option value="BQ">BQ — Banque</option>
-                <option value="CA">CA — Caisse</option>
+                <option value="OD">OD : Opérations diverses</option>
+                <option value="VE">VE : Ventes</option>
+                <option value="AC">AC : Achats</option>
+                <option value="BQ">BQ : Banque</option>
+                <option value="CA">CA : Caisse</option>
               </select>
             </div>
             <div>
@@ -577,7 +629,7 @@ export const AccountingView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setEntryLines((p) => [...p, { accountCode: sortedAccounts[0]?.code || '601', accountName: sortedAccounts[0]?.name || '', debit: 0, credit: 0 }])}
-                className="text-blue-700 dark:text-blue-400 hover:underline"
+                className="text-[#FC3F1D] hover:underline"
               >
                 + Ajouter ligne
               </button>
@@ -596,7 +648,7 @@ export const AccountingView: React.FC = () => {
                     }}
                   >
                     {sortedAccounts.map((a) => (
-                      <option key={a.id} value={a.code}>{a.code} — {a.name}</option>
+                      <option key={a.id} value={a.code}>{a.code} · {a.name}</option>
                     ))}
                   </select>
                 </div>
@@ -623,6 +675,12 @@ export const AccountingView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <ImportSpreadsheetModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        defaultTarget="accounts"
+      />
     </div>
   );
 };

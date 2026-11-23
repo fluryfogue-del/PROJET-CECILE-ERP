@@ -8,10 +8,10 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
-import { FileDown, FileSpreadsheet } from 'lucide-react';
+import { FileDown, FileSpreadsheet, Download } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
 import { formatMoney, todayIso } from '../../lib/format';
-import { exportTablePdf, exportWorkbookExcel } from '../../lib/exports';
+import { exportRowsCsv, exportTablePdf, exportWorkbookExcel } from '../../lib/exports';
 import { PageHeader, btnSecondaryCls, inputCls, labelCls } from '../ui/DataUI';
 
 export const ReportingView: React.FC = () => {
@@ -109,7 +109,7 @@ export const ReportingView: React.FC = () => {
           })),
         },
       ],
-      `Reporting_NEXUS_${todayIso()}`
+      `Reporting_FUREX_${todayIso()}`
     );
   };
 
@@ -128,7 +128,23 @@ export const ReportingView: React.FC = () => {
         ['Articles sous seuil', String(metrics.lowStock)],
         ['Opportunités gagnées', `${metrics.wonOpps} / ${metrics.totalOpps}`],
       ],
-      `Rapport_NEXUS_${todayIso()}`
+      `Rapport_FUREX_${todayIso()}`
+    );
+  };
+
+  const exportSummaryCsv = () => {
+    exportRowsCsv(
+      [
+        { Indicateur: 'Chiffre d affaires TTC', Valeur: metrics.ca, Devise: currency },
+        { Indicateur: 'Montant encaisse', Valeur: metrics.encaisse, Devise: currency },
+        { Indicateur: 'Depenses totales', Valeur: metrics.depenses, Devise: currency },
+        { Indicateur: 'Benefice net estime', Valeur: metrics.benefice, Devise: currency },
+        { Indicateur: 'Taux de marge (%)', Valeur: metrics.marge, Devise: '%' },
+        { Indicateur: 'Valorisation des stocks', Valeur: metrics.stockValuation, Devise: currency },
+        { Indicateur: 'Articles sous seuil', Valeur: metrics.lowStock, Devise: 'Unites' },
+        { Indicateur: 'Opportunites gagnees', Valeur: metrics.wonOpps, Devise: `/${metrics.totalOpps}` },
+      ],
+      `Reporting_FUREX_${todayIso()}`
     );
   };
 
@@ -136,9 +152,12 @@ export const ReportingView: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title="Reporting & Analytics"
-        subtitle="Analyse financière, commerciale, logistique et RH filtrée par période avec exports PDF & Excel"
+        subtitle="Analyse financière, commerciale, logistique et RH filtrée par période avec exports PDF, CSV & Excel"
         actions={
           <>
+            <button type="button" onClick={exportSummaryCsv} className={btnSecondaryCls}>
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
             <button type="button" onClick={exportSummaryPdf} className={btnSecondaryCls}>
               <FileDown className="w-3.5 h-3.5" /> Rapport PDF
             </button>
@@ -150,7 +169,7 @@ export const ReportingView: React.FC = () => {
       />
 
       {/* Period Filter */}
-      <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4 flex flex-wrap items-end gap-4">
+      <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4 flex flex-wrap items-end gap-4">
         <div>
           <label className={labelCls}>Date de début</label>
           <input type="date" className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -163,23 +182,23 @@ export const ReportingView: React.FC = () => {
 
       {/* Analytics KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Chiffre d’affaires période</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums">{formatMoney(metrics.ca, currency)}</p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Dépenses période</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums text-amber-600">{formatMoney(metrics.depenses, currency)}</p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Bénéfice net ({metrics.marge}% marge)</p>
           <p className={`mt-1 font-mono text-lg font-bold tabular-nums ${metrics.benefice >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
             {formatMoney(metrics.benefice, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Opportunités gagnées</p>
-          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-blue-700 dark:text-blue-400">
+          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#FC3F1D]">
             {metrics.wonOpps} / {metrics.totalOpps}
           </p>
         </div>
@@ -187,7 +206,7 @@ export const ReportingView: React.FC = () => {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
           <h3 className="font-display text-sm font-semibold mb-4">Masse salariale par département</h3>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -202,7 +221,7 @@ export const ReportingView: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
           <h3 className="font-display text-sm font-semibold mb-4">Synthèse financière comparative</h3>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">

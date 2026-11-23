@@ -91,12 +91,17 @@ service cloud.firestore {
     // 3. Users (PII isolated strictly to owner)
     function isValidUserProfile(data) {
       return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'email', 'displayName', 'defaultCompanyId', 'language', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'firstName', 'lastName', 'phone', 'address', 'defaultCompanyId', 'language', 'accountType', 'createdAt', 'updatedAt']) &&
         data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128 &&
         data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
         data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        (!('firstName' in data) || (data.firstName is string && data.firstName.size() <= 80)) &&
+        (!('lastName' in data) || (data.lastName is string && data.lastName.size() <= 80)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
         (!('defaultCompanyId' in data) || (data.defaultCompanyId is string && data.defaultCompanyId.size() <= 128)) &&
         (!('language' in data) || (data.language in ['fr', 'en'])) &&
+        (!('accountType' in data) || (data.accountType in ['entreprise', 'particulier'])) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -113,15 +118,20 @@ service cloud.firestore {
         incoming().uid == existing().uid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'defaultCompanyId', 'language', 'updatedAt']);
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'firstName', 'lastName', 'phone', 'address', 'defaultCompanyId', 'language', 'accountType', 'updatedAt']);
       allow delete: if false;
     }
 
-    // 4. Companies (Multi-company root tenant)
+    // 4. Companies / Workspaces (Multi-tenant Entreprise & Particulier)
     function isValidCompany(data) {
       return data.keys().hasAll(['name', 'currency', 'accountingStandard', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['name', 'legalForm', 'taxId', 'rccm', 'currency', 'accountingStandard', 'address', 'phone', 'email', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['name', 'accountType', 'ownerFirstName', 'ownerLastName', 'sector', 'city', 'legalForm', 'taxId', 'rccm', 'currency', 'accountingStandard', 'address', 'phone', 'email', 'passwordSalt', 'passwordHash', 'enabledModules', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
         data.name is string && data.name.size() >= 2 && data.name.size() <= 160 &&
+        (!('accountType' in data) || (data.accountType in ['entreprise', 'particulier'])) &&
+        (!('ownerFirstName' in data) || (data.ownerFirstName is string && data.ownerFirstName.size() <= 80)) &&
+        (!('ownerLastName' in data) || (data.ownerLastName is string && data.ownerLastName.size() <= 80)) &&
+        (!('sector' in data) || (data.sector is string && data.sector.size() <= 120)) &&
+        (!('city' in data) || (data.city is string && data.city.size() <= 120)) &&
         (!('legalForm' in data) || (data.legalForm is string && data.legalForm.size() <= 60)) &&
         (!('taxId' in data) || (data.taxId is string && data.taxId.size() <= 80)) &&
         (!('rccm' in data) || (data.rccm is string && data.rccm.size() <= 80)) &&
@@ -130,6 +140,9 @@ service cloud.firestore {
         (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
         (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
         (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+        (!('passwordSalt' in data) || (data.passwordSalt is string && data.passwordSalt.size() >= 8 && data.passwordSalt.size() <= 64)) &&
+        (!('passwordHash' in data) || (data.passwordHash is string && data.passwordHash.size() >= 16 && data.passwordHash.size() <= 128)) &&
+        (!('enabledModules' in data) || (data.enabledModules is list && data.enabledModules.size() >= 1 && data.enabledModules.size() <= 120 && data.enabledModules[0] is string)) &&
         data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
         isValidMemberList(data.memberUids) &&
         data.ownerId in data.memberUids &&
@@ -154,7 +167,7 @@ service cloud.firestore {
         incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'legalForm', 'taxId', 'rccm', 'currency', 'accountingStandard', 'address', 'phone', 'email', 'memberUids', 'isDemo', 'updatedAt']);
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'accountType', 'ownerFirstName', 'ownerLastName', 'sector', 'city', 'legalForm', 'taxId', 'rccm', 'currency', 'accountingStandard', 'address', 'phone', 'email', 'passwordSalt', 'passwordHash', 'enabledModules', 'memberUids', 'isDemo', 'updatedAt']);
       allow delete: if isVerifiedUser() && isValidId(companyId) &&
         (existing().ownerId == request.auth.uid || isGlobalAdmin());
 
@@ -167,7 +180,7 @@ service cloud.firestore {
           data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
           data.roleCode in ['admin', 'direction', 'commercial', 'comptable', 'magasinier', 'rh', 'lecture'] &&
           (!('departmentName' in data) || (data.departmentName is string && data.departmentName.size() <= 100)) &&
-          data.allowedModules is list && data.allowedModules.size() >= 1 && data.allowedModules.size() <= 20 && data.allowedModules[0] is string &&
+          data.allowedModules is list && data.allowedModules.size() >= 1 && data.allowedModules.size() <= 120 && data.allowedModules[0] is string &&
           data.canWrite is bool &&
           data.canValidate is bool &&
           data.canDelete is bool &&
@@ -236,7 +249,7 @@ service cloud.firestore {
           data.code is string && data.code.size() >= 2 && data.code.size() <= 40 &&
           data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
           (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
-          data.allowedModules is list && data.allowedModules.size() >= 1 && data.allowedModules.size() <= 20 && data.allowedModules[0] is string &&
+          data.allowedModules is list && data.allowedModules.size() >= 1 && data.allowedModules.size() <= 120 && data.allowedModules[0] is string &&
           data.canWrite is bool && data.canValidate is bool && data.canDelete is bool &&
           data.ownerId is string && data.ownerId.size() <= 128 &&
           isValidMemberList(data.memberUids) &&
@@ -1030,6 +1043,68 @@ service cloud.firestore {
           incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt &&
           incoming().diff(existing()).affectedKeys().hasOnly(['read', 'memberUids']);
         allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(notifId) && isCompanyMember(companyId);
+      }
+
+      // 4.28 Dynamic Module Records (60+ Odoo-style operational modules)
+      function isValidModuleRecord(data) {
+        return data.keys().hasAll(['moduleId', 'title', 'status', 'date', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['moduleId', 'title', 'reference', 'partnerName', 'category', 'amount', 'quantity', 'status', 'date', 'notes', 'ownerId', 'memberUids', 'isDemo', 'createdAt', 'updatedAt']) &&
+          data.moduleId is string && data.moduleId.size() >= 1 && data.moduleId.size() <= 80 &&
+          data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+          (!('reference' in data) || (data.reference is string && data.reference.size() <= 60)) &&
+          (!('partnerName' in data) || (data.partnerName is string && data.partnerName.size() <= 160)) &&
+          (!('category' in data) || (data.category is string && data.category.size() <= 80)) &&
+          (!('amount' in data) || data.amount is number) &&
+          (!('quantity' in data) || data.quantity is number) &&
+          data.status in ['brouillon', 'en_cours', 'valide', 'termine', 'annule'] &&
+          data.date is string && data.date.size() <= 30 &&
+          (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.isDemo is bool &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /moduleRecords/{recordId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(recordId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(recordId) &&
+          isValidModuleRecord(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(recordId) &&
+          isValidModuleRecord(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'reference', 'partnerName', 'category', 'amount', 'quantity', 'status', 'date', 'notes', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(recordId) && canCompanyDelete(companyId);
+      }
+
+      // 4.29 User-Created Custom Modules
+      function isValidCustomModule(data) {
+        return data.keys().hasAll(['code', 'name', 'category', 'active', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+          data.keys().hasOnly(['code', 'name', 'category', 'description', 'iconName', 'accentColor', 'active', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+          data.code is string && data.code.size() >= 2 && data.code.size() <= 50 &&
+          data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+          data.category is string && data.category.size() >= 2 && data.category.size() <= 80 &&
+          (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
+          (!('iconName' in data) || (data.iconName is string && data.iconName.size() <= 40)) &&
+          (!('accentColor' in data) || (data.accentColor is string && data.accentColor.size() <= 30)) &&
+          data.active is bool &&
+          data.ownerId is string && data.ownerId.size() <= 128 &&
+          isValidMemberList(data.memberUids) &&
+          data.createdAt is timestamp && data.updatedAt is timestamp;
+      }
+
+      match /customModules/{customModuleId} {
+        allow get: if isVerifiedUser() && isValidId(companyId) && isValidId(customModuleId) && isCompanyMember(companyId);
+        allow list: if isVerifiedUser() && (request.auth.uid in resource.data.memberUids || resource.data.ownerId == request.auth.uid);
+        allow create: if isVerifiedUser() && isValidId(companyId) && isValidId(customModuleId) &&
+          isValidCustomModule(incoming()) && canCompanyWrite(companyId) &&
+          incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isVerifiedUser() && isValidId(companyId) && isValidId(customModuleId) &&
+          isValidCustomModule(incoming()) && canCompanyWrite(companyId) &&
+          incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'description', 'iconName', 'accentColor', 'active', 'memberUids', 'updatedAt']);
+        allow delete: if isVerifiedUser() && isValidId(companyId) && isValidId(customModuleId) && canCompanyDelete(companyId);
       }
     }
   }

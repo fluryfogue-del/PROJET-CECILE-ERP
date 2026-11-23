@@ -1,111 +1,345 @@
-import React from 'react';
-import { Building2, ShieldCheck, Layers, BarChart3, ArrowRight } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Building2,
+  User,
+  ShieldCheck,
+  Layers,
+  Lock,
+  ArrowRight,
+  Grid,
+  CheckCircle2,
+  Sun,
+  Moon,
+  AlertCircle,
+} from 'lucide-react';
 import { useErp } from '../contexts/ErpContext';
+import { AccountType } from '../types/erp';
+import { validatePersonalDetails } from '../lib/security';
+import { inputCls, labelCls } from './ui/DataUI';
 
 export const AuthScreen: React.FC = () => {
-  const { signInWithGoogle, theme, toggleTheme } = useErp();
+  const {
+    signInWithGoogle,
+    theme,
+    toggleTheme,
+    pendingAccountType,
+    setPendingAccountType,
+    pendingPersonalInfo,
+    setPendingPersonalInfo,
+  } = useErp();
+
+  const [authTab, setAuthTab] = useState<'new' | 'existing'>('new');
+  const [firstName, setFirstName] = useState(pendingPersonalInfo.firstName);
+  const [lastName, setLastName] = useState(pendingPersonalInfo.lastName);
+  const [phone, setPhone] = useState(pendingPersonalInfo.phone);
+  const [address, setAddress] = useState(pendingPersonalInfo.address);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleSelectType = (type: AccountType) => {
+    setPendingAccountType(type);
+    setFormError(null);
+  };
+
+  const handleNewProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    const validationError = validatePersonalDetails({
+      lastName,
+      firstName,
+      phone,
+      address,
+    });
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+
+    const cleanPersonal = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      phone: phone.trim(),
+      address: address.trim(),
+    };
+    setPendingPersonalInfo(cleanPersonal);
+    await signInWithGoogle(pendingAccountType, cleanPersonal);
+  };
+
+  const handleExistingSignIn = async () => {
+    setFormError(null);
+    await signInWithGoogle(pendingAccountType);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#070D19] flex flex-col justify-between">
-      <header className="w-full border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B1426] px-6 py-4 flex items-center justify-between gap-8">
+    <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0D0E12] text-[#111216] dark:text-slate-100 flex flex-col justify-between">
+      {/* Clean Header */}
+      <header className="w-full border-b border-[#E6E8EC] dark:border-[#262933] bg-white dark:bg-[#16181F] px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
-          <div className="w-8 h-8 rounded-md bg-blue-700 text-white flex items-center justify-center font-display font-bold text-sm">
-            NX
+          <div className="w-9 h-9 rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm tracking-tight">
+            FX
           </div>
-          <span className="font-display font-bold text-lg tracking-tight text-slate-900 dark:text-white">
-            NEXUS ERP
+          <span className="font-display font-extrabold text-lg tracking-tight text-[#111216] dark:text-white">
+            FUREX ERP
           </span>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+
+        <div className="flex items-center gap-2.5 shrink-0">
           <button
             type="button"
             onClick={toggleTheme}
-            className="px-3 py-1.5 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-md text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+            aria-label="Basculer le thème"
+            className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold border border-[#E6E8EC] dark:border-[#262933] rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
-            {theme === 'dark' ? 'Mode clair' : 'Mode sombre'}
+            {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{theme === 'dark' ? 'Mode clair' : 'Mode sombre'}</span>
           </button>
           <button
             type="button"
-            onClick={signInWithGoogle}
-            className="px-4 py-2 text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded-md transition-colors whitespace-nowrap shrink-0"
+            onClick={() => {
+              setAuthTab('existing');
+              void handleExistingSignIn();
+            }}
+            className="px-4 py-2 text-xs font-semibold bg-[#111216] dark:bg-white text-white dark:text-[#111216] hover:opacity-90 rounded-xl transition-opacity whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Connexion sécurisée
+            Accès membre
           </button>
         </div>
       </header>
 
-      <main className="max-w-5xl w-full mx-auto px-6 py-12 grid lg:grid-cols-12 gap-10 items-center">
-        <div className="lg:col-span-7 space-y-6">
-          <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
-            Projet CECILE · Progiciel de Gestion Intégré
-          </p>
-          <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
-            Connecter, gérer et optimiser chaque processus de votre entreprise.
-          </h1>
-          <p className="text-base text-slate-600 dark:text-slate-300 leading-relaxed max-w-xl">
-            Une plateforme ERP unifiée inspirée des standards Odoo et SAP Business One : CRM, Ventes, Achats, Stocks multi-entrepôts, Comptabilité OHADA, Trésorerie, Ressources Humaines et Reporting temps réel.
-          </p>
+      {/* Main Content: Pure Welcome + Personal Identification (No workspaces or metrics exposed) */}
+      <main className="max-w-6xl w-full mx-auto px-4 sm:px-8 py-10 sm:py-12 grid lg:grid-cols-12 gap-10 items-center">
+        {/* Left Column: Structured Value Proposition */}
+        <div className="lg:col-span-6 space-y-6">
+          <div className="space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-[#FC3F1D]">
+              Plateforme ERP Modulaire · Entreprise & Particulier
+            </p>
+            <h1 className="font-display text-3xl sm:text-5xl font-extrabold tracking-tight text-[#111216] dark:text-white leading-[1.1] text-balance">
+              Pilotez vos activités dans un espace privé et sécurisé.
+            </h1>
+            <p className="text-base text-slate-600 dark:text-slate-300 leading-relaxed max-w-xl">
+              Renseignez vos coordonnées personnelles, choisissez votre profil Entreprise ou Particulier, composez votre suite parmi plus de 66 modules métiers et protégez chaque espace par mot de passe.
+            </p>
+          </div>
 
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={signInWithGoogle}
-              className="inline-flex items-center gap-3 px-6 py-3 bg-[#0B1426] hover:bg-blue-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white font-semibold text-sm rounded-md transition-colors"
-            >
-              <span>Accéder à l’espace de travail avec Google</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+          <div className="grid sm:grid-cols-2 gap-4 pt-2">
+            <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
+              <Grid className="w-4 h-4 text-[#FC3F1D]" />
+              <p className="text-xs font-bold text-[#111216] dark:text-white">66+ modules à la carte</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                CRM, Ventes, Stocks, Achats, OHADA, Trésorerie, RH et modules personnalisés.
+              </p>
+            </div>
+            <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
+              <Lock className="w-4 h-4 text-[#FC3F1D]" />
+              <p className="text-xs font-bold text-[#111216] dark:text-white">Accès par mot de passe</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Vos indicateurs et données restent masqués tant que l’espace n’est pas déverrouillé.
+              </p>
+            </div>
+            <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
+              <Layers className="w-4 h-4 text-[#FC3F1D]" />
+              <p className="text-xs font-bold text-[#111216] dark:text-white">Gestion complète</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Ajout rapide de nouveaux clients, produits, stocks, factures et écritures.
+              </p>
+            </div>
+            <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
+              <ShieldCheck className="w-4 h-4 text-[#FC3F1D]" />
+              <p className="text-xs font-bold text-[#111216] dark:text-white">Isolement strict</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Chaque espace dispose de ses propres données, permissions et sauvegardes.
+              </p>
+            </div>
           </div>
         </div>
 
-        <div className="lg:col-span-5 bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-5">
-          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-3">
-            Architecture opérationnelle incluse
-          </h2>
-          <div className="space-y-4 text-sm">
-            <div className="flex items-start gap-3">
-              <Layers className="w-4 h-4 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-medium text-slate-900 dark:text-slate-100">9 modules interconnectés</p>
-                <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-                  Synchronisation atomique ventes, stocks, facturation, trésorerie et écritures comptables.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <Building2 className="w-4 h-4 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-medium text-slate-900 dark:text-slate-100">Multi-entreprises & Plan OHADA</p>
-                <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-                  Isolation stricte par société, grand livre, balance, bilan et compte de résultat.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ShieldCheck className="w-4 h-4 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-medium text-slate-900 dark:text-slate-100">Contrôle d’accès RBAC & Audit</p>
-                <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-                  Rôles granulaires par département, journalisation immuable et sauvegarde JSON.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <BarChart3 className="w-4 h-4 text-blue-700 dark:text-blue-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-medium text-slate-900 dark:text-slate-100">Exports PDF, Excel & Analytics</p>
-                <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-                  Factures PDF imprimables, classeurs Excel multi-feuilles et indicateurs en direct.
-                </p>
-              </div>
-            </div>
+        {/* Right Column: Identification & Sign-in Card */}
+        <div className="lg:col-span-6 bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-6 sm:p-7 space-y-5">
+          {/* Tabs */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#F5F6F8] dark:bg-[#0D0E12] rounded-xl border border-[#E6E8EC] dark:border-[#262933]">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthTab('new');
+                setFormError(null);
+              }}
+              className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                authTab === 'new'
+                  ? 'bg-white dark:bg-[#16181F] text-[#FC3F1D] shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-[#111216] dark:hover:text-white'
+              }`}
+            >
+              Identification & Création
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthTab('existing');
+                setFormError(null);
+              }}
+              className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                authTab === 'existing'
+                  ? 'bg-white dark:bg-[#16181F] text-[#FC3F1D] shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-[#111216] dark:hover:text-white'
+              }`}
+            >
+              J’ai déjà un espace
+            </button>
           </div>
+
+          {/* Profile Type Selector */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => handleSelectType('entreprise')}
+              className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
+                pendingAccountType === 'entreprise'
+                  ? 'border-[#FC3F1D] bg-[#FC3F1D]/[0.04] ring-1 ring-[#FC3F1D]'
+                  : 'border-[#E6E8EC] dark:border-[#262933] hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <Building2
+                  className={`w-4 h-4 ${
+                    pendingAccountType === 'entreprise' ? 'text-[#FC3F1D]' : 'text-slate-500'
+                  }`}
+                />
+                {pendingAccountType === 'entreprise' && (
+                  <CheckCircle2 className="w-4 h-4 text-[#FC3F1D]" />
+                )}
+              </div>
+              <p className="font-display font-bold text-xs text-[#111216] dark:text-white mt-2">
+                Entreprise
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Société, PME, Commerce
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectType('particulier')}
+              className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
+                pendingAccountType === 'particulier'
+                  ? 'border-[#FC3F1D] bg-[#FC3F1D]/[0.04] ring-1 ring-[#FC3F1D]'
+                  : 'border-[#E6E8EC] dark:border-[#262933] hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <User
+                  className={`w-4 h-4 ${
+                    pendingAccountType === 'particulier' ? 'text-[#FC3F1D]' : 'text-slate-500'
+                  }`}
+                />
+                {pendingAccountType === 'particulier' && (
+                  <CheckCircle2 className="w-4 h-4 text-[#FC3F1D]" />
+                )}
+              </div>
+              <p className="font-display font-bold text-xs text-[#111216] dark:text-white mt-2">
+                Particulier
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Indépendant, Activité perso
+              </p>
+            </button>
+          </div>
+
+          {formError && (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300 font-medium">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          {authTab === 'new' ? (
+            <form onSubmit={handleNewProfileSubmit} noValidate className="space-y-3.5">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Nom *</label>
+                  <input
+                    type="text"
+                    required
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Ex: FOGUE"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Prénoms *</label>
+                  <input
+                    type="text"
+                    required
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Ex: Flury"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>Numéro de téléphone *</label>
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="Ex: +237 699 00 00 00"
+                  className={inputCls}
+                />
+              </div>
+
+              <div>
+                <label className={labelCls}>Adresse complète *</label>
+                <input
+                  type="text"
+                  required
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Quartier, Rue, Ville"
+                  className={inputCls}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#FC3F1D] hover:bg-[#E03212] text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
+              >
+                <span>
+                  Valider et continuer avec Google ({pendingAccountType === 'entreprise' ? 'Entreprise' : 'Particulier'})
+                </span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center">
+                Tous les champs marqués (*) sont obligatoires. Les saisies vides sont refusées.
+              </p>
+            </form>
+          ) : (
+            <div className="space-y-4 py-2">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Authentifiez votre session Google pour accéder au portail sécurisé. Le mot de passe de votre espace de travail vous sera demandé à l’étape suivante avant d’afficher vos données et métriques.
+              </p>
+              <button
+                type="button"
+                onClick={handleExistingSignIn}
+                className="w-full inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#FC3F1D] hover:bg-[#E03212] text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
+              >
+                <span>Se connecter avec Google</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       </main>
 
-      <footer className="border-t border-slate-200 dark:border-slate-800 px-6 py-4 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-4">
-        <span>NEXUS ERP · Projet CECILE</span>
-        <span>Français · Architecture modulaire persistante</span>
+      {/* Clean Footer */}
+      <footer className="border-t border-[#E6E8EC] dark:border-[#262933] bg-white dark:bg-[#16181F] px-4 sm:px-8 py-4 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-4">
+        <span className="font-semibold text-[#111216] dark:text-slate-200">
+          FUREX ERP · Progiciel de Gestion Intégré
+        </span>
+        <span>Entreprise & Particulier · Accès sécurisé par espace</span>
       </footer>
     </div>
   );

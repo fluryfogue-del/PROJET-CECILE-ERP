@@ -1,19 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Download, Trash2, Building2, ShieldAlert } from 'lucide-react';
+import { Plus, Download, Trash2, Building2, ShieldAlert, Lock, KeyRound, Upload, FileSpreadsheet } from 'lucide-react';
 import { doc, serverTimestamp, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useErp } from '../../contexts/ErpContext';
 import { db } from '../../lib/firebase';
-import { downloadJsonFile } from '../../lib/exports';
+import { downloadJsonFile, exportWorkbookExcel } from '../../lib/exports';
 import { formatMoney, todayIso } from '../../lib/format';
+import { ImportSpreadsheetModal } from '../ImportSpreadsheetModal';
+import {
+  hashWorkspacePassword,
+  isNonEmptyText,
+  validateWorkspacePasswordPair,
+  verifyWorkspacePassword,
+} from '../../lib/security';
 import {
   ALL_MODULES,
-  createCompanyWorkspace,
   createErpDoc,
   deleteErpDoc,
   exportCompanyBackup,
   logAudit,
   purgeDemoData,
   updateErpDoc,
+  updateWorkspacePassword,
 } from '../../services/erpEngine';
 import { AccountingStandard, CurrencyCode, RoleCode } from '../../types/erp';
 import {
@@ -31,18 +38,29 @@ export const AdminView: React.FC = () => {
   const {
     user,
     activeCompany,
-    setActiveCompanyId,
+    setCreateWorkspaceOpen,
     members,
     roles,
     departments,
     auditLogs,
+    products,
+    customers,
+    leads,
+    suppliers,
+    employees,
+    invoices,
     notify,
   } = useErp();
 
   const [tab, setTab] = useState<'company' | 'members' | 'roles' | 'departments' | 'audit' | 'backup'>('company');
+  const [importOpen, setImportOpen] = useState(false);
 
   // Company Settings Form
   const [compName, setCompName] = useState(activeCompany?.name || '');
+  const [ownerLastName, setOwnerLastName] = useState(activeCompany?.ownerLastName || '');
+  const [ownerFirstName, setOwnerFirstName] = useState(activeCompany?.ownerFirstName || '');
+  const [compSector, setCompSector] = useState(activeCompany?.sector || '');
+  const [compCity, setCompCity] = useState(activeCompany?.city || '');
   const [compTaxId, setCompTaxId] = useState(activeCompany?.taxId || '');
   const [compRccm, setCompRccm] = useState(activeCompany?.rccm || '');
   const [compAddress, setCompAddress] = useState(activeCompany?.address || '');
@@ -50,9 +68,19 @@ export const AdminView: React.FC = () => {
   const [compCurrency, setCompCurrency] = useState<CurrencyCode>(activeCompany?.currency || 'XAF');
   const [compStandard, setCompStandard] = useState<AccountingStandard>(activeCompany?.accountingStandard || 'OHADA');
 
+  // Workspace Password Update Form
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdBusy, setPwdBusy] = useState(false);
+
   useEffect(() => {
     if (!activeCompany) return;
     setCompName(activeCompany.name || '');
+    setOwnerLastName(activeCompany.ownerLastName || '');
+    setOwnerFirstName(activeCompany.ownerFirstName || '');
+    setCompSector(activeCompany.sector || '');
+    setCompCity(activeCompany.city || '');
     setCompTaxId(activeCompany.taxId || '');
     setCompRccm(activeCompany.rccm || '');
     setCompAddress(activeCompany.address || '');
@@ -60,15 +88,6 @@ export const AdminView: React.FC = () => {
     setCompCurrency(activeCompany.currency || 'XAF');
     setCompStandard(activeCompany.accountingStandard || 'OHADA');
   }, [activeCompany]);
-
-  // New Company Modal (Multi-company)
-  const [newCompModal, setNewCompModal] = useState(false);
-  const [newCompForm, setNewCompForm] = useState({
-    name: '',
-    currency: 'XAF' as CurrencyCode,
-    accountingStandard: 'OHADA' as AccountingStandard,
-    withDemoData: false,
-  });
 
   // Member Modal
   const [memberModal, setMemberModal] = useState(false);
@@ -91,13 +110,29 @@ export const AdminView: React.FC = () => {
 
   const saveCompanySettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isNonEmptyText(compName, 2)) {
+      notify('Le nom ou la raison sociale ne peut pas être vide.', 'error');
+      return;
+    }
+    if (!isNonEmptyText(compPhone, 6)) {
+      notify('Un numéro de téléphone valide est obligatoire.', 'error');
+      return;
+    }
+    if (!isNonEmptyText(compAddress, 3)) {
+      notify('L’adresse ne peut pas être vide.', 'error');
+      return;
+    }
     try {
       await updateDoc(doc(db, 'companies', activeCompany.id), {
-        name: compName,
-        taxId: compTaxId,
-        rccm: compRccm,
-        address: compAddress,
-        phone: compPhone,
+        name: compName.trim(),
+        ownerLastName: ownerLastName.trim(),
+        ownerFirstName: ownerFirstName.trim(),
+        sector: compSector.trim(),
+        city: compCity.trim(),
+        taxId: compTaxId.trim(),
+        rccm: compRccm.trim(),
+        address: compAddress.trim(),
+        phone: compPhone.trim(),
         currency: compCurrency,
         accountingStandard: compStandard,
         updatedAt: serverTimestamp(),
@@ -110,34 +145,58 @@ export const AdminView: React.FC = () => {
         memberUids,
         action: 'UPDATE_SETTINGS',
         module: 'admin',
-        summary: `Mise à jour des paramètres généraux de ${compName}.`,
+        summary: `Mise à jour des paramètres généraux de ${compName.trim()}.`,
       });
-      notify('Paramètres de l’entreprise enregistrés.', 'success');
+      notify('Paramètres de l’espace enregistrés.', 'success');
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Erreur paramètres', 'error');
     }
   };
 
-  const handleCreateNewCompany = async (e: React.FormEvent) => {
+  const handleUpdateWorkspacePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    if (activeCompany.passwordHash && activeCompany.passwordSalt) {
+      if (!isNonEmptyText(currentPwd)) {
+        notify('Veuillez saisir le mot de passe actuel de l’espace.', 'error');
+        return;
+      }
+      const validCurrent = await verifyWorkspacePassword(
+        currentPwd,
+        activeCompany.passwordSalt,
+        activeCompany.passwordHash
+      );
+      if (!validCurrent) {
+        notify('Mot de passe actuel incorrect.', 'error');
+        return;
+      }
+    }
+    const pairErr = validateWorkspacePasswordPair(newPwd, confirmPwd);
+    if (pairErr) {
+      notify(pairErr, 'error');
+      return;
+    }
+    setPwdBusy(true);
     try {
-      const id = await createCompanyWorkspace({
+      const { salt, hash } = await hashWorkspacePassword(newPwd);
+      await updateWorkspacePassword(activeCompany.id, salt, hash);
+      await logAudit({
+        companyId: activeCompany.id,
         uid: user.uid,
         email: user.email || '',
-        displayName: user.displayName || 'Administrateur',
-        name: newCompForm.name,
-        currency: newCompForm.currency,
-        accountingStandard: newCompForm.accountingStandard,
-        withDemoData: newCompForm.withDemoData,
+        ownerId,
+        memberUids,
+        action: 'UPDATE_PASSWORD',
+        module: 'admin',
+        summary: 'Modification du mot de passe de protection de l’espace de travail.',
       });
-      setActiveCompanyId(id);
-      setNewCompModal(false);
-      notify(`Société "${newCompForm.name}" créée et activée.`, 'success');
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+      notify('Mot de passe de l’espace mis à jour avec succès.', 'success');
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Erreur création société', 'error');
+      notify(err instanceof Error ? err.message : 'Erreur mot de passe', 'error');
     } finally {
-      setBusy(false);
+      setPwdBusy(false);
     }
   };
 
@@ -188,6 +247,80 @@ export const AdminView: React.FC = () => {
     }
   };
 
+  const handleGlobalExcelExport = () => {
+    exportWorkbookExcel(
+      [
+        {
+          name: 'Articles & Stocks',
+          rows: products.map((p) => ({
+            SKU: p.sku,
+            Designation: p.name,
+            Categorie: p.categoryName || 'Général',
+            PrixAchat: p.purchasePrice,
+            PrixVente: p.salePrice,
+            Stock: p.stockQty,
+          })),
+        },
+        {
+          name: 'Clients',
+          rows: customers.map((c) => ({
+            Code: c.code,
+            Nom: c.name,
+            Segment: c.segment,
+            Email: c.email || '',
+            Telephone: c.phone || '',
+            SoldeDu: c.balanceDue || 0,
+          })),
+        },
+        {
+          name: 'Prospects',
+          rows: leads.map((l) => ({
+            Nom: l.name,
+            Entreprise: l.companyName || '',
+            Email: l.email || '',
+            Telephone: l.phone || '',
+            Statut: l.status,
+            ValeurEstimee: l.estimatedValue,
+          })),
+        },
+        {
+          name: 'Fournisseurs',
+          rows: suppliers.map((s) => ({
+            Code: s.code,
+            Nom: s.name,
+            Email: s.email || '',
+            Telephone: s.phone || '',
+            Dette: s.balancePayable,
+          })),
+        },
+        {
+          name: 'Employes',
+          rows: employees.map((e) => ({
+            Matricule: e.matricule,
+            Prenom: e.firstName,
+            Nom: e.lastName,
+            Departement: e.departmentName,
+            Poste: e.position,
+            SalaireBase: e.baseSalary,
+          })),
+        },
+        {
+          name: 'Factures',
+          rows: invoices.map((i) => ({
+            Numero: i.number,
+            Client: i.customerName,
+            Date: i.date,
+            TotalTTC: i.total,
+            Paye: i.paidAmount,
+            Statut: i.status,
+          })),
+        },
+      ],
+      `Export_Global_${activeCompany.name.replace(/\s+/g, '_')}_${todayIso()}`
+    );
+    notify('Classeur Excel complet téléchargé.', 'success');
+  };
+
   const handlePurgeDemo = async () => {
     setBusy(true);
     try {
@@ -209,11 +342,11 @@ export const AdminView: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Administration, Sécurité & Multi-Société"
-        subtitle="Utilisateurs, rôles RBAC, départements, paramètres entreprise, journal d’audit et sauvegarde"
+        title="Administration, Sécurité & Multi-Espace"
+        subtitle="Utilisateurs, rôles RBAC, départements, sécurité par mot de passe, journal d’audit et sauvegarde"
         actions={
-          <button type="button" onClick={() => setNewCompModal(true)} className={btnPrimaryCls}>
-            <Building2 className="w-3.5 h-3.5" /> Nouvelle société
+          <button type="button" onClick={() => setCreateWorkspaceOpen(true)} className={btnPrimaryCls}>
+            <Building2 className="w-3.5 h-3.5" /> Nouvel espace
           </button>
         }
       />
@@ -222,59 +355,133 @@ export const AdminView: React.FC = () => {
         activeId={tab}
         onChange={(id) => setTab(id as typeof tab)}
         tabs={[
-          { id: 'company', label: 'Paramètres Société' },
+          { id: 'company', label: 'Paramètres & Sécurité' },
           { id: 'members', label: 'Utilisateurs', count: members.length },
           { id: 'roles', label: 'Rôles & Permissions', count: roles.length },
           { id: 'departments', label: 'Départements', count: departments.length },
           { id: 'audit', label: 'Journal d’audit', count: auditLogs.length },
-          { id: 'backup', label: 'Sauvegarde & Démo' },
+          { id: 'backup', label: 'Import / Export & Sauvegarde' },
         ]}
       />
 
       {tab === 'company' && (
-        <form onSubmit={saveCompanySettings} className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4 max-w-3xl">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <form onSubmit={saveCompanySettings} className="xl:col-span-2 bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4">
+            <h3 className="font-display font-bold text-sm text-slate-900 dark:text-white">
+              Informations de l’espace & du responsable
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Nom / Raison sociale *</label>
+                <input required className={inputCls} value={compName} onChange={(e) => setCompName(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Secteur / Activité</label>
+                <input className={inputCls} value={compSector} onChange={(e) => setCompSector(e.target.value)} placeholder="Commerce, Services, Industrie..." />
+              </div>
+              <div>
+                <label className={labelCls}>Nom du responsable</label>
+                <input className={inputCls} value={ownerLastName} onChange={(e) => setOwnerLastName(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Prénoms du responsable</label>
+                <input className={inputCls} value={ownerFirstName} onChange={(e) => setOwnerFirstName(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Devise principale</label>
+                <select className={inputCls} value={compCurrency} onChange={(e) => setCompCurrency(e.target.value as CurrencyCode)}>
+                  <option value="XAF">XAF (Franc CFA BEAC)</option>
+                  <option value="XOF">XOF (Franc CFA BCEAO)</option>
+                  <option value="EUR">EUR (Euro)</option>
+                  <option value="USD">USD (Dollar US)</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Référentiel comptable</label>
+                <select className={inputCls} value={compStandard} onChange={(e) => setCompStandard(e.target.value as AccountingStandard)}>
+                  <option value="OHADA">Système Comptable OHADA (SYSCOHADA)</option>
+                  <option value="GENERAL">Plan Comptable Général</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>NIF / CNI</label>
+                <input className={inputCls} value={compTaxId} onChange={(e) => setCompTaxId(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>RCCM / Registre</label>
+                <input className={inputCls} value={compRccm} onChange={(e) => setCompRccm(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Téléphone *</label>
+                <input required className={inputCls} value={compPhone} onChange={(e) => setCompPhone(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Ville / Pays</label>
+                <input className={inputCls} value={compCity} onChange={(e) => setCompCity(e.target.value)} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Adresse physique *</label>
+                <input required className={inputCls} value={compAddress} onChange={(e) => setCompAddress(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button type="submit" className={btnPrimaryCls}>Enregistrer les paramètres</button>
+            </div>
+          </form>
+
+          <form onSubmit={handleUpdateWorkspacePassword} className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4 h-fit">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[#FC3F1D]/10 text-[#FC3F1D] flex items-center justify-center">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-sm text-slate-900 dark:text-white">
+                  Sécurité de l’espace
+                </h3>
+                <p className="text-[11px] text-slate-500">Protection PBKDF2 des métriques</p>
+              </div>
+            </div>
+            {activeCompany.passwordHash && (
+              <div>
+                <label className={labelCls}>Mot de passe actuel *</label>
+                <input
+                  type="password"
+                  required
+                  className={inputCls}
+                  value={currentPwd}
+                  onChange={(e) => setCurrentPwd(e.target.value)}
+                  placeholder="Mot de passe actuel"
+                />
+              </div>
+            )}
             <div>
-              <label className={labelCls}>Raison sociale *</label>
-              <input required className={inputCls} value={compName} onChange={(e) => setCompName(e.target.value)} />
+              <label className={labelCls}>Nouveau mot de passe *</label>
+              <input
+                type="password"
+                required
+                className={inputCls}
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                placeholder="Minimum 4 caractères"
+              />
             </div>
             <div>
-              <label className={labelCls}>Devise principale</label>
-              <select className={inputCls} value={compCurrency} onChange={(e) => setCompCurrency(e.target.value as CurrencyCode)}>
-                <option value="XAF">XAF (Franc CFA BEAC)</option>
-                <option value="XOF">XOF (Franc CFA BCEAO)</option>
-                <option value="EUR">EUR (Euro)</option>
-                <option value="USD">USD (Dollar US)</option>
-              </select>
+              <label className={labelCls}>Confirmer le mot de passe *</label>
+              <input
+                type="password"
+                required
+                className={inputCls}
+                value={confirmPwd}
+                onChange={(e) => setConfirmPwd(e.target.value)}
+                placeholder="Confirmer"
+              />
             </div>
-            <div>
-              <label className={labelCls}>Référentiel comptable</label>
-              <select className={inputCls} value={compStandard} onChange={(e) => setCompStandard(e.target.value as AccountingStandard)}>
-                <option value="OHADA">Système Comptable OHADA (SYSCOHADA)</option>
-                <option value="GENERAL">Plan Comptable Général</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>NIF / Identifiant Fiscal</label>
-              <input className={inputCls} value={compTaxId} onChange={(e) => setCompTaxId(e.target.value)} />
-            </div>
-            <div>
-              <label className={labelCls}>RCCM / Registre de commerce</label>
-              <input className={inputCls} value={compRccm} onChange={(e) => setCompRccm(e.target.value)} />
-            </div>
-            <div>
-              <label className={labelCls}>Téléphone</label>
-              <input className={inputCls} value={compPhone} onChange={(e) => setCompPhone(e.target.value)} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className={labelCls}>Adresse du siège</label>
-              <input className={inputCls} value={compAddress} onChange={(e) => setCompAddress(e.target.value)} />
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button type="submit" className={btnPrimaryCls}>Enregistrer les paramètres</button>
-          </div>
-        </form>
+            <button type="submit" disabled={pwdBusy} className={`${btnPrimaryCls} w-full justify-center`}>
+              <KeyRound className="w-3.5 h-3.5" />
+              {pwdBusy ? 'Chiffrement...' : 'Mettre à jour le mot de passe'}
+            </button>
+          </form>
+        </div>
       )}
 
       {tab === 'members' && (
@@ -284,7 +491,7 @@ export const AdminView: React.FC = () => {
               <Plus className="w-3.5 h-3.5" /> Ajouter un utilisateur
             </button>
           </div>
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
@@ -303,7 +510,7 @@ export const AdminView: React.FC = () => {
                       <p className="text-slate-400">{m.email}</p>
                     </td>
                     <td className="py-3 px-4"><StatusLabel label={m.roleCode} tone="info" /></td>
-                    <td className="py-3 px-4">{m.departmentName || '—'}</td>
+                    <td className="py-3 px-4">{m.departmentName || '-'}</td>
                     <td className="py-3 px-4 text-slate-500">
                       {[m.canWrite && 'Écriture', m.canValidate && 'Validation', m.canDelete && 'Suppression'].filter(Boolean).join(' · ') || 'Lecture'}
                     </td>
@@ -311,7 +518,7 @@ export const AdminView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => updateErpDoc(activeCompany.id, 'members', m.id, { active: !m.active })}
-                        className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline"
+                        className="text-xs font-medium text-[#FC3F1D] hover:underline"
                       >
                         {m.active ? 'Actif (désactiver)' : 'Inactif (activer)'}
                       </button>
@@ -327,7 +534,7 @@ export const AdminView: React.FC = () => {
       {tab === 'roles' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {roles.map((r) => (
-            <div key={r.id} className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-2">
+            <div key={r.id} className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-display font-semibold text-sm">{r.name}</span>
                 <StatusLabel label={r.code} tone="info" />
@@ -348,7 +555,7 @@ export const AdminView: React.FC = () => {
               <Plus className="w-3.5 h-3.5" /> Nouveau département
             </button>
           </div>
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
@@ -364,7 +571,7 @@ export const AdminView: React.FC = () => {
                   <tr key={d.id}>
                     <td className="py-3 px-4 font-mono">{d.code}</td>
                     <td className="py-3 px-4 font-semibold">{d.name}</td>
-                    <td className="py-3 px-4">{d.managerName || '—'}</td>
+                    <td className="py-3 px-4">{d.managerName || '-'}</td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums">
                       {formatMoney(d.budget || 0, activeCompany.currency)}
                     </td>
@@ -382,7 +589,7 @@ export const AdminView: React.FC = () => {
       )}
 
       {tab === 'audit' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
@@ -407,18 +614,33 @@ export const AdminView: React.FC = () => {
       )}
 
       {tab === 'backup' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-3">
+            <h3 className="font-display font-semibold text-sm">Import & Export CSV / Excel</h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Importez vos articles, clients, prospects, fournisseurs, employés ou comptes OHADA depuis CSV ou Excel, ou exportez tout votre espace vers un classeur multi-onglets.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setImportOpen(true)} className={btnPrimaryCls}>
+                <Upload className="w-3.5 h-3.5" /> Importer CSV/Excel
+              </button>
+              <button type="button" onClick={handleGlobalExcelExport} className={btnSecondaryCls}>
+                <FileSpreadsheet className="w-3.5 h-3.5" /> Export Excel global
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-3">
             <h3 className="font-display font-semibold text-sm">Sauvegarde complète de la base de données</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
               Exportez l’intégralité des collections de l’entreprise active (clients, factures, stocks, comptabilité, RH, journaux d’audit) au format JSON structuré.
             </p>
-            <button type="button" disabled={busy} onClick={handleBackup} className={btnPrimaryCls}>
+            <button type="button" disabled={busy} onClick={handleBackup} className={btnSecondaryCls}>
               <Download className="w-3.5 h-3.5" /> Télécharger la sauvegarde JSON
             </button>
           </div>
 
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-3">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-3">
             <div className="flex items-center gap-2 text-amber-600">
               <ShieldAlert className="w-4 h-4" />
               <h3 className="font-display font-semibold text-sm">Gestion des données de démonstration</h3>
@@ -432,47 +654,11 @@ export const AdminView: React.FC = () => {
               onClick={handlePurgeDemo}
               className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-md"
             >
-              <Trash2 className="w-3.5 h-3.5" /> Supprimer toutes les données de démonstration
+              <Trash2 className="w-3.5 h-3.5" /> Purger les données démo
             </button>
           </div>
         </div>
       )}
-
-      {/* New Company Modal */}
-      <Modal open={newCompModal} title="Créer une nouvelle entreprise (Multi-Société)" onClose={() => setNewCompModal(false)} maxWidth="max-w-md">
-        <form onSubmit={handleCreateNewCompany} className="space-y-4">
-          <div>
-            <label className={labelCls}>Nom de la société *</label>
-            <input required className={inputCls} value={newCompForm.name} onChange={(e) => setNewCompForm({ ...newCompForm, name: e.target.value })} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Devise</label>
-              <select className={inputCls} value={newCompForm.currency} onChange={(e) => setNewCompForm({ ...newCompForm, currency: e.target.value as CurrencyCode })}>
-                <option value="XAF">XAF</option>
-                <option value="XOF">XOF</option>
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Plan comptable</label>
-              <select className={inputCls} value={newCompForm.accountingStandard} onChange={(e) => setNewCompForm({ ...newCompForm, accountingStandard: e.target.value as AccountingStandard })}>
-                <option value="OHADA">OHADA</option>
-                <option value="GENERAL">Général</option>
-              </select>
-            </div>
-          </div>
-          <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-            <input type="checkbox" checked={newCompForm.withDemoData} onChange={(e) => setNewCompForm({ ...newCompForm, withDemoData: e.target.checked })} />
-            Inclure les données de démonstration
-          </label>
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setNewCompModal(false)} className={btnSecondaryCls}>Annuler</button>
-            <button type="submit" disabled={busy} className={btnPrimaryCls}>Créer la société</button>
-          </div>
-        </form>
-      </Modal>
 
       {/* Add Member Modal */}
       <Modal open={memberModal} title="Ajouter un membre à la société" onClose={() => setMemberModal(false)} maxWidth="max-w-md">
@@ -549,6 +735,13 @@ export const AdminView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <ImportSpreadsheetModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        defaultTarget="products"
+        allowTargetSwitch
+      />
     </div>
   );
 };

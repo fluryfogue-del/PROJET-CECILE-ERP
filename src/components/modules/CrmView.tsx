@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, ArrowRightLeft, MessageSquarePlus, Trash2, Edit3, Search } from 'lucide-react';
+import { Plus, ArrowRightLeft, MessageSquarePlus, Trash2, Edit3, Search, Upload, Download, FileSpreadsheet } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
 import { formatDateFr, formatMoney, todayIso } from '../../lib/format';
+import { exportRowsCsv, exportWorkbookExcel } from '../../lib/exports';
 import {
   convertLeadToCustomer,
   createErpDoc,
@@ -10,6 +11,7 @@ import {
   updateErpDoc,
 } from '../../services/erpEngine';
 import { Customer, Lead, Opportunity } from '../../types/erp';
+import { ImportSpreadsheetModal } from '../ImportSpreadsheetModal';
 import {
   EmptyState,
   Modal,
@@ -61,9 +63,10 @@ export const CrmView: React.FC = () => {
     phone: '',
     address: '',
     taxId: '',
-    creditLimit: 5000000,
+    creditLimit: 0,
     notes: '',
   });
+  const [importOpen, setImportOpen] = useState(false);
 
   // Opportunity Modal
   const [oppModal, setOppModal] = useState(false);
@@ -140,20 +143,31 @@ export const CrmView: React.FC = () => {
 
   const saveLead = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanName = leadForm.name.trim();
+    if (cleanName.length < 2) {
+      notify('Le nom du prospect est obligatoire (minimum 2 caractères).', 'error');
+      return;
+    }
+    const payload = {
+      ...leadForm,
+      name: cleanName,
+      companyName: leadForm.companyName.trim(),
+      email: leadForm.email.trim(),
+      phone: leadForm.phone.trim(),
+      source: leadForm.source.trim(),
+      notes: leadForm.notes.trim(),
+      estimatedValue: Number(leadForm.estimatedValue) || 0,
+    };
     try {
       if (editingLead) {
-        await updateErpDoc(activeCompany.id, 'leads', editingLead.id, {
-          ...leadForm,
-          estimatedValue: Number(leadForm.estimatedValue) || 0,
-        });
+        await updateErpDoc(activeCompany.id, 'leads', editingLead.id, payload);
         notify('Prospect mis à jour.', 'success');
       } else {
         await createErpDoc(
           activeCompany.id,
           'leads',
           {
-            ...leadForm,
-            estimatedValue: Number(leadForm.estimatedValue) || 0,
+            ...payload,
             isDemo: false,
           },
           ownerId,
@@ -208,7 +222,7 @@ export const CrmView: React.FC = () => {
         phone: '',
         address: '',
         taxId: '',
-        creditLimit: 5000000,
+        creditLimit: 0,
         notes: '',
       });
     }
@@ -217,20 +231,33 @@ export const CrmView: React.FC = () => {
 
   const saveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanCode = custForm.code.trim();
+    const cleanName = custForm.name.trim();
+    if (!cleanCode || cleanName.length < 2) {
+      notify('Le code client et le nom ou raison sociale sont obligatoires.', 'error');
+      return;
+    }
+    const payload = {
+      ...custForm,
+      code: cleanCode,
+      name: cleanName,
+      email: custForm.email.trim(),
+      phone: custForm.phone.trim(),
+      address: custForm.address.trim(),
+      taxId: custForm.taxId.trim(),
+      notes: custForm.notes.trim(),
+      creditLimit: Number(custForm.creditLimit) || 0,
+    };
     try {
       if (editingCust) {
-        await updateErpDoc(activeCompany.id, 'customers', editingCust.id, {
-          ...custForm,
-          creditLimit: Number(custForm.creditLimit) || 0,
-        });
+        await updateErpDoc(activeCompany.id, 'customers', editingCust.id, payload);
         notify('Fiche client mise à jour.', 'success');
       } else {
         await createErpDoc(
           activeCompany.id,
           'customers',
           {
-            ...custForm,
-            creditLimit: Number(custForm.creditLimit) || 0,
+            ...payload,
             balanceDue: 0,
             isDemo: false,
           },
@@ -246,9 +273,10 @@ export const CrmView: React.FC = () => {
           action: 'CREATE',
           module: 'crm',
           entityType: 'customer',
-          summary: `Création client ${custForm.name}`,
+          summary: `Création client ${cleanName}`,
         });
         notify('Client créé.', 'success');
+        setTab('customers');
       }
       setCustModal(false);
     } catch (err) {
@@ -366,6 +394,110 @@ export const CrmView: React.FC = () => {
     (o) => o.title.toLowerCase().includes(q) || (o.customerName || '').toLowerCase().includes(q)
   );
 
+  const exportCrmCsv = () => {
+    if (tab === 'customers') {
+      exportRowsCsv(
+        customers.map((c) => ({
+          Code: c.code,
+          Nom: c.name,
+          Segment: c.segment,
+          Email: c.email || '',
+          Telephone: c.phone || '',
+          Adresse: c.address || '',
+          NIF: c.taxId || '',
+          PlafondCredit: c.creditLimit || 0,
+          SoldeDu: c.balanceDue || 0,
+          Notes: c.notes || '',
+        })),
+        `Clients_CRM_${todayIso()}`
+      );
+    } else if (tab === 'opportunities') {
+      exportRowsCsv(
+        opportunities.map((o) => ({
+          Affaire: o.title,
+          Client: o.customerName || '',
+          Etape: o.stage,
+          Montant: o.amount,
+          Probabilite: o.probability,
+          CloturePrevue: o.expectedCloseDate,
+        })),
+        `Opportunites_CRM_${todayIso()}`
+      );
+    } else if (tab === 'interactions') {
+      exportRowsCsv(
+        interactions.map((i) => ({
+          Date: i.date,
+          Canal: i.channel,
+          Entite: i.entityName || i.entityId,
+          Resume: i.summary,
+          Auteur: i.authorEmail || '',
+        })),
+        `Interactions_CRM_${todayIso()}`
+      );
+    } else {
+      exportRowsCsv(
+        leads.map((l) => ({
+          Nom: l.name,
+          Entreprise: l.companyName || '',
+          Email: l.email || '',
+          Telephone: l.phone || '',
+          Source: l.source || '',
+          Statut: l.status,
+          ValeurEstimee: l.estimatedValue,
+          Notes: l.notes || '',
+        })),
+        `Prospects_CRM_${todayIso()}`
+      );
+    }
+    notify('Export CSV téléchargé.', 'success');
+  };
+
+  const exportCrmExcel = () => {
+    exportWorkbookExcel(
+      [
+        {
+          name: 'Clients',
+          rows: customers.map((c) => ({
+            Code: c.code,
+            Nom: c.name,
+            Segment: c.segment,
+            Email: c.email || '',
+            Telephone: c.phone || '',
+            Adresse: c.address || '',
+            NIF: c.taxId || '',
+            PlafondCredit: c.creditLimit || 0,
+            SoldeDu: c.balanceDue || 0,
+          })),
+        },
+        {
+          name: 'Prospects',
+          rows: leads.map((l) => ({
+            Nom: l.name,
+            Entreprise: l.companyName || '',
+            Email: l.email || '',
+            Telephone: l.phone || '',
+            Source: l.source || '',
+            Statut: l.status,
+            ValeurEstimee: l.estimatedValue,
+          })),
+        },
+        {
+          name: 'Opportunites',
+          rows: opportunities.map((o) => ({
+            Affaire: o.title,
+            Client: o.customerName || '',
+            Etape: o.stage,
+            Montant: o.amount,
+            Probabilite: o.probability,
+            CloturePrevue: o.expectedCloseDate,
+          })),
+        },
+      ],
+      `CRM_FUREX_${todayIso()}`
+    );
+    notify('Classeur Excel CRM téléchargé.', 'success');
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -373,6 +505,15 @@ export const CrmView: React.FC = () => {
         subtitle="Prospects, conversion en clients, pipeline d’opportunités et historique des interactions"
         actions={
           <>
+            <button type="button" onClick={() => setImportOpen(true)} className={btnSecondaryCls}>
+              <Upload className="w-3.5 h-3.5" /> Importer CSV/Excel
+            </button>
+            <button type="button" onClick={exportCrmCsv} className={btnSecondaryCls}>
+              <Download className="w-3.5 h-3.5" /> CSV
+            </button>
+            <button type="button" onClick={exportCrmExcel} className={btnSecondaryCls}>
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+            </button>
             <button type="button" onClick={() => openLeadForm()} className={btnSecondaryCls}>
               <Plus className="w-3.5 h-3.5" /> Nouveau prospect
             </button>
@@ -385,21 +526,21 @@ export const CrmView: React.FC = () => {
 
       {/* Commercial Stats Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500 dark:text-slate-400">Pipeline commercial actif</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums text-slate-900 dark:text-white">
             {formatMoney(stats.pipelineValue, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500 dark:text-slate-400">Opportunités gagnées</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
             {formatMoney(stats.wonValue, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500 dark:text-slate-400">Taux de conversion prospects</p>
-          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-blue-700 dark:text-blue-400">
+          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#FC3F1D]">
             {stats.conversionRate} %
           </p>
         </div>
@@ -431,7 +572,7 @@ export const CrmView: React.FC = () => {
 
       {/* Tab Content */}
       {tab === 'leads' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {filteredLeads.length === 0 ? (
             <EmptyState
               title="Aucun prospect trouvé"
@@ -459,10 +600,10 @@ export const CrmView: React.FC = () => {
                       <p className="text-slate-500 dark:text-slate-400">{lead.companyName || 'Particulier'}</p>
                     </td>
                     <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
-                      <p>{lead.email || '—'}</p>
+                      <p>{lead.email || '-'}</p>
                       <p className="font-mono text-[11px] text-slate-400">{lead.phone || ''}</p>
                     </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{lead.source || '—'}</td>
+                    <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{lead.source || '-'}</td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums font-medium">
                       {formatMoney(lead.estimatedValue, currency)}
                     </td>
@@ -486,7 +627,7 @@ export const CrmView: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleConvertLead(lead)}
-                            className="px-2 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded hover:bg-blue-50 dark:hover:bg-blue-950/50"
+                            className="px-2 py-1 text-[11px] font-medium text-[#FC3F1D] border border-blue-200 dark:border-blue-800 rounded hover:bg-blue-50 dark:hover:bg-blue-950/50"
                             title="Convertir en client"
                           >
                             <ArrowRightLeft className="w-3 h-3 inline mr-1" />
@@ -496,7 +637,7 @@ export const CrmView: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => openInteractionModal('lead', lead.id, lead.name)}
-                          className="p-1.5 text-slate-500 hover:text-blue-600"
+                          className="p-1.5 text-slate-500 hover:text-[#FC3F1D]"
                           title="Ajouter une interaction"
                         >
                           <MessageSquarePlus className="w-3.5 h-3.5" />
@@ -528,7 +669,7 @@ export const CrmView: React.FC = () => {
       )}
 
       {tab === 'customers' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {filteredCustomers.length === 0 ? (
             <EmptyState
               title="Aucun client enregistré"
@@ -554,13 +695,13 @@ export const CrmView: React.FC = () => {
                     <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-300">{c.code}</td>
                     <td className="py-3 px-4">
                       <p className="font-semibold text-slate-900 dark:text-white">{c.name}</p>
-                      <p className="text-slate-400">{c.address || '—'}</p>
+                      <p className="text-slate-400">{c.address || '-'}</p>
                     </td>
                     <td className="py-3 px-4">
                       <StatusLabel label={c.segment} tone="info" />
                     </td>
                     <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
-                      <p>{c.email || '—'}</p>
+                      <p>{c.email || '-'}</p>
                       <p className="font-mono text-[11px] text-slate-400">{c.phone || ''}</p>
                     </td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold">
@@ -573,7 +714,7 @@ export const CrmView: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => openInteractionModal('customer', c.id, c.name)}
-                          className="p-1.5 text-slate-500 hover:text-blue-600"
+                          className="p-1.5 text-slate-500 hover:text-[#FC3F1D]"
                           title="Consigner un échange"
                         >
                           <MessageSquarePlus className="w-3.5 h-3.5" />
@@ -611,7 +752,7 @@ export const CrmView: React.FC = () => {
               <Plus className="w-3.5 h-3.5" /> Nouvelle opportunité
             </button>
           </div>
-          <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+          <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
             {filteredOpps.length === 0 ? (
               <EmptyState
                 title="Aucune opportunité commerciale"
@@ -636,7 +777,7 @@ export const CrmView: React.FC = () => {
                   {filteredOpps.map((opp) => (
                     <tr key={opp.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
                       <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">{opp.title}</td>
-                      <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{opp.customerName || '—'}</td>
+                      <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{opp.customerName || '-'}</td>
                       <td className="py-3 px-4">
                         <StatusLabel
                           label={opp.stage}
@@ -668,7 +809,7 @@ export const CrmView: React.FC = () => {
       )}
 
       {tab === 'interactions' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-800">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-800">
           {interactions.length === 0 ? (
             <EmptyState
               title="Aucune interaction consignée"
@@ -798,7 +939,7 @@ export const CrmView: React.FC = () => {
             <div>
               <label className={labelCls}>Client associé</label>
               <select className={inputCls} value={oppForm.customerId} onChange={(e) => setOppForm({ ...oppForm, customerId: e.target.value })}>
-                <option value="">— Sélectionner —</option>
+                <option value="">Sélectionner un client</option>
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -863,6 +1004,13 @@ export const CrmView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <ImportSpreadsheetModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        defaultTarget={tab === 'leads' ? 'leads' : 'customers'}
+        allowTargetSwitch
+      />
     </div>
   );
 };

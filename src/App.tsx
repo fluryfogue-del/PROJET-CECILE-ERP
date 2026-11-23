@@ -8,7 +8,12 @@ import { ShieldAlert } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ErpProvider, useErp } from './contexts/ErpContext';
 import { AuthScreen } from './components/AuthScreen';
+import { WorkspaceOnboarding } from './components/WorkspaceOnboarding';
+import { WorkspaceLockGate } from './components/WorkspaceLockGate';
 import { Layout } from './components/Layout';
+import { AppLauncherView } from './components/modules/AppLauncherView';
+import { AppStoreView } from './components/modules/AppStoreView';
+import { DynamicModuleView } from './components/modules/DynamicModuleView';
 import { DashboardView } from './components/modules/DashboardView';
 import { CrmView } from './components/modules/CrmView';
 import { SalesView } from './components/modules/SalesView';
@@ -22,17 +27,29 @@ import { AdminView } from './components/modules/AdminView';
 import { DocsView } from './components/modules/DocsView';
 
 const ErpShell: React.FC = () => {
-  const { user, authReady, bootstrapping, activeCompany, activeModule, hasModuleAccess, setActiveModule } = useErp();
+  const {
+    user,
+    authReady,
+    companiesLoaded,
+    companies,
+    activeCompany,
+    isWorkspaceUnlocked,
+    createWorkspaceOpen,
+    setCreateWorkspaceOpen,
+    activeModule,
+    hasModuleAccess,
+    setActiveModule,
+  } = useErp();
 
   if (!authReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#070D19] p-6">
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F6F8] dark:bg-[#0D0E12] p-6">
         <div className="text-center space-y-3">
-          <div className="w-10 h-10 mx-auto rounded-md bg-blue-700 text-white flex items-center justify-center font-display font-bold text-sm">
-            NX
+          <div className="w-11 h-11 mx-auto rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm">
+            FX
           </div>
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            Initialisation de la session NEXUS ERP...
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+            Initialisation de la session FUREX ERP...
           </p>
         </div>
       </div>
@@ -43,30 +60,44 @@ const ErpShell: React.FC = () => {
     return <AuthScreen />;
   }
 
-  if (bootstrapping || !activeCompany) {
+  if (!companiesLoaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#070D19] p-6">
-        <div className="max-w-md w-full bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-6 text-center space-y-3">
-          <div className="w-10 h-10 mx-auto rounded-md bg-blue-700 text-white flex items-center justify-center font-display font-bold text-sm">
-            NX
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F6F8] dark:bg-[#0D0E12] p-6">
+        <div className="max-w-md w-full bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-6 text-center space-y-3">
+          <div className="w-11 h-11 mx-auto rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm">
+            FX
           </div>
-          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-white">
-            Préparation de votre espace CECILE — NEXUS ERP
+          <h2 className="font-display text-base font-bold text-[#111216] dark:text-white">
+            Vérification de votre accès FUREX ERP
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            Initialisation du plan comptable OHADA, des entrepôts, de la trésorerie et des données opérationnelles en base de données...
+            Préparation de votre environnement sécurisé...
           </p>
         </div>
       </div>
     );
   }
 
+  if (companies.length === 0 || !activeCompany || createWorkspaceOpen) {
+    return (
+      <WorkspaceOnboarding
+        onCancel={companies.length > 0 ? () => setCreateWorkspaceOpen(false) : undefined}
+        onCreated={() => setCreateWorkspaceOpen(false)}
+      />
+    );
+  }
+
+  // Enforce workspace password verification before exposing any metrics, modules, or subcollections
+  if (!isWorkspaceUnlocked) {
+    return <WorkspaceLockGate />;
+  }
+
   const renderModule = () => {
     if (!hasModuleAccess(activeModule)) {
       return (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-8 text-center space-y-3 max-w-lg mx-auto mt-8">
+        <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-8 text-center space-y-3 max-w-lg mx-auto mt-8">
           <ShieldAlert className="w-8 h-8 text-amber-600 mx-auto" />
-          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-white">
+          <h2 className="font-display text-base font-bold text-[#111216] dark:text-white">
             Accès restreint à ce module
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -74,16 +105,22 @@ const ErpShell: React.FC = () => {
           </p>
           <button
             type="button"
-            onClick={() => setActiveModule('dashboard')}
-            className="px-4 py-2 text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded-md"
+            onClick={() => setActiveModule('launcher')}
+            className="px-4 py-2 text-xs font-semibold bg-[#FC3F1D] hover:bg-[#E03212] text-white rounded-xl"
           >
-            Retour au tableau de bord
+            Retour aux Applications
           </button>
         </div>
       );
     }
 
     switch (activeModule) {
+      case 'launcher':
+        return <AppLauncherView />;
+      case 'appstore':
+        return <AppStoreView />;
+      case 'dynamic_module':
+        return <DynamicModuleView />;
       case 'dashboard':
         return <DashboardView />;
       case 'crm':
@@ -107,7 +144,7 @@ const ErpShell: React.FC = () => {
       case 'docs':
         return <DocsView />;
       default:
-        return <DashboardView />;
+        return <AppLauncherView />;
     }
   };
 

@@ -19,7 +19,7 @@ export function formatNumber(n: number | undefined | null): string {
 }
 
 export function formatDateFr(dateStr: string | undefined | null): string {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });

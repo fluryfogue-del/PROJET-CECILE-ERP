@@ -16,11 +16,10 @@ import { generateDocNumber, round2, todayIso, addDaysIso, currentPeriod } from '
 import {
   Account,
   AccountingStandard,
+  AccountType,
   CurrencyCode,
   DocumentLine,
-  Employee,
   Invoice,
-  JournalEntry,
   JournalLine,
   Lead,
   ModuleId,
@@ -33,8 +32,11 @@ import {
   SupplierInvoice,
   TreasuryAccount,
 } from '../types/erp';
+import { MODULE_CATALOG } from '../data/moduleCatalog';
 
 export const ALL_MODULES: ModuleId[] = [
+  'launcher',
+  'appstore',
   'dashboard',
   'crm',
   'sales',
@@ -46,6 +48,7 @@ export const ALL_MODULES: ModuleId[] = [
   'reporting',
   'admin',
   'docs',
+  'dynamic_module',
 ];
 
 export const OHADA_DEFAULT_ACCOUNTS: Array<{
@@ -169,27 +172,55 @@ export async function createCompanyWorkspace(params: {
   uid: string;
   email: string;
   displayName: string;
+  ownerFirstName: string;
+  ownerLastName: string;
+  phone: string;
+  address: string;
+  city?: string;
+  sector?: string;
+  legalForm?: string;
+  taxId?: string;
+  rccm?: string;
   name: string;
+  accountType?: AccountType;
   currency: CurrencyCode;
   accountingStandard: AccountingStandard;
+  passwordSalt: string;
+  passwordHash: string;
+  enabledModules?: string[];
   withDemoData: boolean;
 }): Promise<string> {
   const companyRef = doc(collection(db, 'companies'));
   const companyId = companyRef.id;
   const memberUids = [params.uid];
+  const acctType: AccountType = params.accountType || 'entreprise';
+  const resolvedModules =
+    params.enabledModules && params.enabledModules.length > 0
+      ? params.enabledModules
+      : MODULE_CATALOG.map((m) => m.id);
 
   try {
     // Step 1: Create parent company first so security rule get() / exists() sees it
     await setDoc(companyRef, {
-      name: params.name,
-      legalForm: params.withDemoData ? 'SARL' : 'SAS',
-      taxId: params.withDemoData ? 'M042619874321K' : '',
-      rccm: params.withDemoData ? 'RC/DLA/2024/B/1482' : '',
+      name: params.name.trim(),
+      accountType: acctType,
+      ownerFirstName: params.ownerFirstName.trim(),
+      ownerLastName: params.ownerLastName.trim(),
+      sector: (params.sector || '').trim(),
+      city: (params.city || '').trim(),
+      legalForm:
+        (params.legalForm || '').trim() ||
+        (acctType === 'particulier' ? 'Particulier / Indépendant' : 'SARL'),
+      taxId: (params.taxId || '').trim(),
+      rccm: (params.rccm || '').trim(),
       currency: params.currency,
       accountingStandard: params.accountingStandard,
-      address: params.withDemoData ? 'Boulevard de la Liberté, Douala' : '',
-      phone: params.withDemoData ? '+237 699 42 18 00' : '',
-      email: params.email,
+      address: params.address.trim(),
+      phone: params.phone.trim(),
+      email: params.email.trim(),
+      passwordSalt: params.passwordSalt,
+      passwordHash: params.passwordHash,
+      enabledModules: resolvedModules,
       ownerId: params.uid,
       memberUids,
       isDemo: params.withDemoData,
@@ -197,12 +228,12 @@ export async function createCompanyWorkspace(params: {
       updatedAt: serverTimestamp(),
     });
 
-    // Step 2: Create owner member record + user defaultCompanyId
+    // Step 2: Create owner member record + update user profile personal details
     const memberRef = doc(db, `companies/${companyId}/members/${params.uid}`);
     await setDoc(memberRef, {
       uid: params.uid,
-      email: params.email,
-      displayName: params.displayName,
+      email: params.email.trim(),
+      displayName: `${params.ownerFirstName.trim()} ${params.ownerLastName.trim()}`.trim() || params.displayName,
       roleCode: 'admin',
       departmentName: 'Direction Générale',
       allowedModules: ALL_MODULES,
@@ -217,6 +248,12 @@ export async function createCompanyWorkspace(params: {
     });
 
     await updateDoc(doc(db, 'users', params.uid), {
+      firstName: params.ownerFirstName.trim(),
+      lastName: params.ownerLastName.trim(),
+      phone: params.phone.trim(),
+      address: params.address.trim(),
+      displayName: `${params.ownerFirstName.trim()} ${params.ownerLastName.trim()}`.trim() || params.displayName,
+      accountType: acctType,
       defaultCompanyId: companyId,
       updatedAt: serverTimestamp(),
     });
@@ -246,7 +283,7 @@ export async function createCompanyWorkspace(params: {
         code: 'direction',
         name: 'Direction Générale',
         description: 'Pilotage stratégique, validations et analytics.',
-        allowedModules: ['dashboard', 'crm', 'sales', 'purchases', 'inventory', 'accounting', 'treasury', 'hr', 'reporting', 'docs'],
+        allowedModules: ['launcher', 'appstore', 'dashboard', 'crm', 'sales', 'purchases', 'inventory', 'accounting', 'treasury', 'hr', 'reporting', 'docs', 'dynamic_module'],
         canWrite: true,
         canValidate: true,
         canDelete: false,
@@ -255,7 +292,7 @@ export async function createCompanyWorkspace(params: {
         code: 'commercial',
         name: 'Responsable Commercial',
         description: 'Gestion CRM, devis, commandes clients et facturation.',
-        allowedModules: ['dashboard', 'crm', 'sales', 'inventory', 'reporting', 'docs'],
+        allowedModules: ['launcher', 'dashboard', 'crm', 'sales', 'inventory', 'reporting', 'docs', 'dynamic_module'],
         canWrite: true,
         canValidate: true,
         canDelete: false,
@@ -264,7 +301,7 @@ export async function createCompanyWorkspace(params: {
         code: 'comptable',
         name: 'Chef Comptable OHADA',
         description: 'Comptabilité générale, journaux, trésorerie et bilans.',
-        allowedModules: ['dashboard', 'sales', 'purchases', 'accounting', 'treasury', 'reporting', 'docs'],
+        allowedModules: ['launcher', 'dashboard', 'sales', 'purchases', 'accounting', 'treasury', 'reporting', 'docs', 'dynamic_module'],
         canWrite: true,
         canValidate: true,
         canDelete: false,
@@ -273,7 +310,7 @@ export async function createCompanyWorkspace(params: {
         code: 'magasinier',
         name: 'Gestionnaire de Stocks',
         description: 'Entrepôts, réceptions, transferts et inventaires.',
-        allowedModules: ['dashboard', 'inventory', 'purchases', 'sales', 'docs'],
+        allowedModules: ['launcher', 'dashboard', 'inventory', 'purchases', 'sales', 'docs', 'dynamic_module'],
         canWrite: true,
         canValidate: false,
         canDelete: false,
@@ -282,7 +319,7 @@ export async function createCompanyWorkspace(params: {
         code: 'rh',
         name: 'Responsable RH',
         description: 'Dossiers employés, congés, absences et paie.',
-        allowedModules: ['dashboard', 'hr', 'reporting', 'docs'],
+        allowedModules: ['launcher', 'dashboard', 'hr', 'reporting', 'docs', 'dynamic_module'],
         canWrite: true,
         canValidate: true,
         canDelete: false,
@@ -301,11 +338,11 @@ export async function createCompanyWorkspace(params: {
     });
 
     const deptSeeds = [
-      { code: 'DIR', name: 'Direction Générale', managerName: params.displayName, budget: 15000000 },
-      { code: 'COM', name: 'Ventes & CRM', managerName: 'Claire Mbarga', budget: 8500000 },
-      { code: 'FIN', name: 'Finance & Comptabilité', managerName: 'Marc Essomba', budget: 6000000 },
-      { code: 'LOG', name: 'Logistique & Stocks', managerName: 'Paul Nkodo', budget: 9200000 },
-      { code: 'RH', name: 'Ressources Humaines', managerName: 'Nadine Kamga', budget: 5400000 },
+      { code: 'DIR', name: 'Direction Générale', managerName: params.displayName, budget: params.withDemoData ? 15000000 : 0 },
+      { code: 'COM', name: 'Ventes & CRM', managerName: params.withDemoData ? 'Claire Mbarga' : '', budget: params.withDemoData ? 8500000 : 0 },
+      { code: 'FIN', name: 'Finance & Comptabilité', managerName: params.withDemoData ? 'Marc Essomba' : '', budget: params.withDemoData ? 6000000 : 0 },
+      { code: 'LOG', name: 'Logistique & Stocks', managerName: params.withDemoData ? 'Paul Nkodo' : '', budget: params.withDemoData ? 9200000 : 0 },
+      { code: 'RH', name: 'Ressources Humaines', managerName: params.withDemoData ? 'Nadine Kamga' : '', budget: params.withDemoData ? 5400000 : 0 },
     ];
 
     deptSeeds.forEach((d) => {
@@ -969,7 +1006,7 @@ async function seedDemoOperationalData(opts: {
       matricule: 'EMP-001',
       firstName: 'Claire',
       lastName: 'Mbarga',
-      email: 'c.mbarga@cecile-erp.cm',
+      email: 'c.mbarga@furex-erp.com',
       phone: '+237 699 11 22 33',
       departmentName: 'Ventes & CRM',
       position: 'Directrice Commerciale',
@@ -983,7 +1020,7 @@ async function seedDemoOperationalData(opts: {
       matricule: 'EMP-002',
       firstName: 'Marc',
       lastName: 'Essomba',
-      email: 'm.essomba@cecile-erp.cm',
+      email: 'm.essomba@furex-erp.com',
       phone: '+237 677 55 44 33',
       departmentName: 'Finance & Comptabilité',
       position: 'Chef Comptable OHADA',
@@ -997,7 +1034,7 @@ async function seedDemoOperationalData(opts: {
       matricule: 'EMP-003',
       firstName: 'Paul',
       lastName: 'Nkodo',
-      email: 'p.nkodo@cecile-erp.cm',
+      email: 'p.nkodo@furex-erp.com',
       phone: '+237 655 66 77 88',
       departmentName: 'Logistique & Stocks',
       position: 'Chef Magasinier',
@@ -1011,7 +1048,7 @@ async function seedDemoOperationalData(opts: {
       matricule: 'EMP-004',
       firstName: 'Nadine',
       lastName: 'Kamga',
-      email: 'n.kamga@cecile-erp.cm',
+      email: 'n.kamga@furex-erp.com',
       phone: '+237 694 32 10 98',
       departmentName: 'Ressources Humaines',
       position: 'Chargée RH & Paie',
@@ -1068,6 +1105,68 @@ async function seedDemoOperationalData(opts: {
     updatedAt: serverTimestamp(),
   });
 
+  // Demo dynamic module records for POS, Fleet, Projects, Expenses
+  const modSeeds = [
+    {
+      moduleId: 'mod_pos',
+      title: 'Vente comptoir : Équipement Poste Bureau',
+      reference: 'POS-2026-014',
+      partnerName: 'Client Passage Akwa',
+      category: 'Caisse Principale #01',
+      amount: 590000,
+      quantity: 1,
+      status: 'valide',
+      date: todayIso(),
+      notes: 'Règlement instantané Mobile Money.',
+    },
+    {
+      moduleId: 'mod_fleet',
+      title: 'Tournée livraison Zone Industrielle Bassa',
+      reference: 'FLT-2026-008',
+      partnerName: 'Jean-Paul Kouam · Véhicule LT-442',
+      category: 'Livraison Express Douala',
+      amount: 45000,
+      quantity: 38,
+      status: 'en_cours',
+      date: todayIso(),
+      notes: 'Livraison commande Groupe Horizon BTP.',
+    },
+    {
+      moduleId: 'mod_projects',
+      title: 'Déploiement Réseau Fibre Siège Client',
+      reference: 'PRJ-2026-003',
+      partnerName: 'Société Atlantique Logistique SA',
+      category: 'Infrastructure IT',
+      amount: 4600000,
+      quantity: 65,
+      status: 'en_cours',
+      date: todayIso(),
+      notes: 'Phase de recette et paramétrage routeurs.',
+    },
+    {
+      moduleId: 'mod_expenses',
+      title: 'Frais de déplacement mission Yaoundé',
+      reference: 'NDF-2026-011',
+      partnerName: 'Claire Mbarga',
+      category: 'Transport & Hébergement',
+      amount: 125000,
+      quantity: 3,
+      status: 'valide',
+      date: todayIso(),
+      notes: 'Justificatifs validés par la direction.',
+    },
+  ];
+  modSeeds.forEach((mr) => {
+    batch.set(doc(collection(db, `companies/${companyId}/moduleRecords`)), {
+      ...mr,
+      ownerId: uid,
+      memberUids,
+      isDemo: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  });
+
   // Low-stock alert notification
   batch.set(doc(collection(db, `companies/${companyId}/notifications`)), {
     title: 'Alerte Stock Minimum',
@@ -1081,6 +1180,33 @@ async function seedDemoOperationalData(opts: {
   });
 
   await batch.commit();
+}
+
+export async function updateWorkspaceEnabledModules(companyId: string, enabledModules: string[]) {
+  try {
+    await updateDoc(doc(db, 'companies', companyId), {
+      enabledModules: enabledModules.length > 0 ? enabledModules : ['mod_dashboard'],
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `companies/${companyId}`);
+  }
+}
+
+export async function updateWorkspacePassword(
+  companyId: string,
+  passwordSalt: string,
+  passwordHash: string
+) {
+  try {
+    await updateDoc(doc(db, 'companies', companyId), {
+      passwordSalt,
+      passwordHash,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `companies/${companyId}`);
+  }
 }
 
 export async function purgeDemoData(params: {
@@ -1114,6 +1240,7 @@ export async function purgeDemoData(params: {
     'leaves',
     'payrolls',
     'departments',
+    'moduleRecords',
   ];
 
   let deletedCount = 0;
@@ -1505,34 +1632,36 @@ export async function createInvoiceFromOrder(params: {
     });
 
     // Automatic OHADA accounting entry: 411 Débit / 701 + 443 Crédit
-    const netHt = round2(params.order.total - params.order.taxTotal);
-    const lines: JournalLine[] = [
-      { accountCode: '411', accountName: 'Clients, créances en compte', debit: params.order.total, credit: 0 },
-      { accountCode: '701', accountName: 'Ventes de marchandises', debit: 0, credit: netHt },
-    ];
-    if (params.order.taxTotal > 0) {
-      lines.push({
-        accountCode: '443',
-        accountName: 'État, TVA facturée (collectée)',
-        debit: 0,
-        credit: params.order.taxTotal,
+    if (params.order.total > 0) {
+      const netHt = round2(params.order.total - params.order.taxTotal);
+      const lines: JournalLine[] = [
+        { accountCode: '411', accountName: 'Clients, créances en compte', debit: params.order.total, credit: 0 },
+        { accountCode: '701', accountName: 'Ventes de marchandises', debit: 0, credit: netHt },
+      ];
+      if (params.order.taxTotal > 0) {
+        lines.push({
+          accountCode: '443',
+          accountName: 'État, TVA facturée (collectée)',
+          debit: 0,
+          credit: params.order.taxTotal,
+        });
+      }
+
+      await applyAccountingEntryAndAccountBalances({
+        companyId: params.companyId,
+        accounts: params.accounts,
+        journalCode: 'VE',
+        reference: invNumber,
+        label: `Facturation client ${params.order.customerName} (${invNumber})`,
+        lines,
+        sourceModule: 'sales',
+        sourceId: invRef.id,
+        uid: params.uid,
+        email: params.email,
+        ownerId: params.ownerId,
+        memberUids: params.memberUids,
       });
     }
-
-    await applyAccountingEntryAndAccountBalances({
-      companyId: params.companyId,
-      accounts: params.accounts,
-      journalCode: 'VE',
-      reference: invNumber,
-      label: `Facturation client ${params.order.customerName} (${invNumber})`,
-      lines,
-      sourceModule: 'sales',
-      sourceId: invRef.id,
-      uid: params.uid,
-      email: params.email,
-      ownerId: params.ownerId,
-      memberUids: params.memberUids,
-    });
 
     await logAudit({
       companyId: params.companyId,
@@ -1547,6 +1676,196 @@ export async function createInvoiceFromOrder(params: {
       summary: `Facture ${invNumber} émise (${params.order.total}) et comptabilisée en OHADA.`,
     });
   } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `companies/${params.companyId}/invoices`);
+  }
+}
+
+export async function createDirectInvoice(params: {
+  companyId: string;
+  customerId: string;
+  customerName: string;
+  customerEmail?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  lines: DocumentLine[];
+  dueDate?: string;
+  notes?: string;
+  deductStock: boolean;
+  accounts: Account[];
+  uid: string;
+  email: string;
+  ownerId: string;
+  memberUids: string[];
+}): Promise<{ id: string; number: string }> {
+  const totals = computeDocumentTotals(params.lines);
+  if (totals.lines.length === 0) {
+    throw new Error('Ajoutez au moins un article ou une ligne à facturer.');
+  }
+
+  const invRef = doc(collection(db, `companies/${params.companyId}/invoices`));
+  const invNumber = generateDocNumber('FAC');
+  const custRef = doc(db, `companies/${params.companyId}/customers`, params.customerId);
+  const lowStockAlerts: string[] = [];
+
+  try {
+    await runTransaction(db, async (tx) => {
+      const custSnap = await tx.get(custRef);
+      const currentDue = custSnap.exists() ? (custSnap.data().balanceDue || 0) : 0;
+
+      const productUpdates: Array<{
+        ref: ReturnType<typeof doc>;
+        product: Product;
+        qtyOut: number;
+      }> = [];
+
+      if (params.deductStock && params.warehouseId) {
+        for (const line of totals.lines) {
+          if (!line.productId) continue;
+          const pRef = doc(db, `companies/${params.companyId}/products`, line.productId);
+          const pSnap = await tx.get(pRef);
+          if (!pSnap.exists()) continue;
+          const prod = { id: pSnap.id, ...pSnap.data() } as Product;
+          if (prod.stockQty < line.qty) {
+            throw new Error(
+              `Stock insuffisant pour "${prod.name}" (disponible : ${prod.stockQty}, demandé : ${line.qty}). Réceptionnez un achat ou décochez la sortie de stock.`
+            );
+          }
+          productUpdates.push({ ref: pRef, product: prod, qtyOut: line.qty });
+        }
+      }
+
+      for (const item of productUpdates) {
+        const newTotalQty = round2(item.product.stockQty - item.qtyOut);
+        const whMap = { ...(item.product.warehouseStocks || {}) };
+        const whId = params.warehouseId || 'default';
+        const currentWhQty = whMap[whId] ?? item.product.stockQty;
+        whMap[whId] = Math.max(0, round2(currentWhQty - item.qtyOut));
+
+        tx.update(item.ref, {
+          stockQty: newTotalQty,
+          warehouseStocks: whMap,
+          updatedAt: serverTimestamp(),
+        });
+
+        const movRef = doc(collection(db, `companies/${params.companyId}/stockMovements`));
+        tx.set(movRef, {
+          productId: item.product.id,
+          productName: item.product.name,
+          sku: item.product.sku,
+          warehouseId: whId,
+          warehouseName: params.warehouseName || 'Entrepôt Principal',
+          type: 'sortie',
+          quantity: item.qtyOut,
+          unitCost: item.product.purchasePrice,
+          totalValue: round2(item.qtyOut * item.product.purchasePrice),
+          referenceType: 'invoice',
+          referenceNumber: invNumber,
+          note: `Sortie directe sur facture ${invNumber}`,
+          date: todayIso(),
+          authorEmail: params.email,
+          ownerId: params.ownerId,
+          memberUids: params.memberUids,
+          isDemo: false,
+          createdAt: serverTimestamp(),
+        });
+
+        if (newTotalQty <= item.product.minStock) {
+          lowStockAlerts.push(`${item.product.name} (${newTotalQty} <= seuil ${item.product.minStock})`);
+        }
+      }
+
+      tx.set(invRef, {
+        number: invNumber,
+        customerId: params.customerId,
+        customerName: params.customerName,
+        customerEmail: params.customerEmail || '',
+        date: todayIso(),
+        dueDate: params.dueDate || addDaysIso(30),
+        status: 'emise',
+        lines: totals.lines,
+        subtotal: totals.subtotal,
+        discountTotal: totals.discountTotal,
+        taxTotal: totals.taxTotal,
+        total: totals.total,
+        paidAmount: 0,
+        balanceDue: totals.total,
+        notes: (params.notes || 'Facture client émise directement.').slice(0, 580),
+        ownerId: params.ownerId,
+        memberUids: params.memberUids,
+        isDemo: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      if (custSnap.exists()) {
+        tx.update(custRef, {
+          balanceDue: round2(currentDue + totals.total),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+
+    for (const alertMsg of lowStockAlerts) {
+      await pushNotification({
+        companyId: params.companyId,
+        ownerId: params.ownerId,
+        memberUids: params.memberUids,
+        title: 'Alerte Stock Minimum',
+        message: alertMsg,
+        severity: 'warning',
+        module: 'inventory',
+      });
+    }
+
+    if (totals.total > 0) {
+      const netHt = round2(totals.total - totals.taxTotal);
+      const jLines: JournalLine[] = [
+        { accountCode: '411', accountName: 'Clients, créances en compte', debit: totals.total, credit: 0 },
+        { accountCode: '701', accountName: 'Ventes de marchandises', debit: 0, credit: netHt },
+      ];
+      if (totals.taxTotal > 0) {
+        jLines.push({
+          accountCode: '443',
+          accountName: 'État, TVA facturée (collectée)',
+          debit: 0,
+          credit: totals.taxTotal,
+        });
+      }
+
+      await applyAccountingEntryAndAccountBalances({
+        companyId: params.companyId,
+        accounts: params.accounts,
+        journalCode: 'VE',
+        reference: invNumber,
+        label: `Facture client ${params.customerName} (${invNumber})`,
+        lines: jLines,
+        sourceModule: 'sales',
+        sourceId: invRef.id,
+        uid: params.uid,
+        email: params.email,
+        ownerId: params.ownerId,
+        memberUids: params.memberUids,
+      });
+    }
+
+    await logAudit({
+      companyId: params.companyId,
+      uid: params.uid,
+      email: params.email,
+      ownerId: params.ownerId,
+      memberUids: params.memberUids,
+      action: 'CREATE_DIRECT_INVOICE',
+      module: 'sales',
+      entityType: 'invoice',
+      entityId: invRef.id,
+      summary: `Facture directe ${invNumber} émise pour ${params.customerName} (${totals.total}).`,
+    });
+
+    return { id: invRef.id, number: invNumber };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Stock insuffisant')) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.WRITE, `companies/${params.companyId}/invoices`);
   }
 }
@@ -1766,39 +2085,41 @@ export async function receivePurchaseOrderWithStock(params: {
       }
     });
 
-    const netHt = round2(params.po.total - params.po.taxTotal);
-    const lines: JournalLine[] = [
-      { accountCode: '601', accountName: 'Achats de marchandises', debit: netHt, credit: 0 },
-    ];
-    if (params.po.taxTotal > 0) {
+    if (params.po.total > 0) {
+      const netHt = round2(params.po.total - params.po.taxTotal);
+      const lines: JournalLine[] = [
+        { accountCode: '601', accountName: 'Achats de marchandises', debit: netHt, credit: 0 },
+      ];
+      if (params.po.taxTotal > 0) {
+        lines.push({
+          accountCode: '445',
+          accountName: 'État, TVA récupérable',
+          debit: params.po.taxTotal,
+          credit: 0,
+        });
+      }
       lines.push({
-        accountCode: '445',
-        accountName: 'État, TVA récupérable',
-        debit: params.po.taxTotal,
-        credit: 0,
+        accountCode: '401',
+        accountName: 'Fournisseurs, dettes en compte',
+        debit: 0,
+        credit: params.po.total,
+      });
+
+      await applyAccountingEntryAndAccountBalances({
+        companyId: params.companyId,
+        accounts: params.accounts,
+        journalCode: 'AC',
+        reference: sinvNumber,
+        label: `Réception & Facture fournisseur ${params.po.supplierName} (${sinvNumber})`,
+        lines,
+        sourceModule: 'purchases',
+        sourceId: sinvRef.id,
+        uid: params.uid,
+        email: params.email,
+        ownerId: params.ownerId,
+        memberUids: params.memberUids,
       });
     }
-    lines.push({
-      accountCode: '401',
-      accountName: 'Fournisseurs, dettes en compte',
-      debit: 0,
-      credit: params.po.total,
-    });
-
-    await applyAccountingEntryAndAccountBalances({
-      companyId: params.companyId,
-      accounts: params.accounts,
-      journalCode: 'AC',
-      reference: sinvNumber,
-      label: `Réception & Facture fournisseur ${params.po.supplierName} (${sinvNumber})`,
-      lines,
-      sourceModule: 'purchases',
-      sourceId: sinvRef.id,
-      uid: params.uid,
-      email: params.email,
-      ownerId: params.ownerId,
-      memberUids: params.memberUids,
-    });
 
     await logAudit({
       companyId: params.companyId,
@@ -2105,7 +2426,7 @@ export async function payEmployeePayroll(params: {
         amount: round2(params.payroll.netSalary),
         date: todayIso(),
         reference: `SAL-${params.payroll.period}`,
-        note: `Paiement salaire ${params.payroll.period} — ${params.payroll.employeeName}`,
+        note: `Paiement salaire ${params.payroll.period} : ${params.payroll.employeeName}`,
         ownerId: params.ownerId,
         memberUids: params.memberUids,
         isDemo: false,
@@ -2119,7 +2440,7 @@ export async function payEmployeePayroll(params: {
       accounts: params.accounts,
       journalCode: params.treasuryAccount.type === 'caisse' ? 'CA' : 'BQ',
       reference: payNumber,
-      label: `Paie ${params.payroll.period} — ${params.payroll.employeeName}`,
+      label: `Paie ${params.payroll.period} : ${params.payroll.employeeName}`,
       lines: [
         { accountCode: '661', accountName: 'Rémunérations directes versées au personnel', debit: round2(params.payroll.netSalary), credit: 0 },
         { accountCode: tresCode, accountName: params.treasuryAccount.name, debit: 0, credit: round2(params.payroll.netSalary) },
@@ -2162,6 +2483,8 @@ export async function exportCompanyBackup(companyId: string, uid: string) {
     'employees',
     'leaves',
     'payrolls',
+    'moduleRecords',
+    'customModules',
     'auditLogs',
   ];
 

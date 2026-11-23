@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, ArrowDownLeft, ArrowUpRight, FileDown } from 'lucide-react';
+import { Plus, ArrowDownLeft, ArrowUpRight, FileDown, Download, FileSpreadsheet } from 'lucide-react';
 import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { useErp } from '../../contexts/ErpContext';
 import { db } from '../../lib/firebase';
 import { formatDateFr, formatMoney, generateDocNumber, round2, todayIso } from '../../lib/format';
-import { exportTablePdf } from '../../lib/exports';
+import { exportRowsCsv, exportTablePdf, exportWorkbookExcel } from '../../lib/exports';
 import { createErpDoc, postManualJournalEntry } from '../../services/erpEngine';
 import {
   EmptyState,
@@ -123,7 +123,7 @@ export const TreasuryView: React.FC = () => {
         journalCode: tAcc.type === 'caisse' ? 'CA' : 'BQ',
         date: todayIso(),
         reference: payNum,
-        label: `${movForm.direction === 'encaissement' ? 'Encaissement' : 'Décaissement'} — ${movForm.partnerName}`,
+        label: `${movForm.direction === 'encaissement' ? 'Encaissement' : 'Décaissement'} : ${movForm.partnerName}`,
         lines:
           movForm.direction === 'encaissement'
             ? [
@@ -148,6 +148,72 @@ export const TreasuryView: React.FC = () => {
     }
   };
 
+  const exportTreasuryCsv = () => {
+    if (tab === 'accounts') {
+      exportRowsCsv(
+        treasuryAccounts.map((a) => ({
+          Compte: a.name,
+          Type: a.type,
+          Banque: a.bankName || '',
+          IBAN: a.iban || '',
+          CodeOHADA: a.accountCode || '',
+          Solde: a.balance,
+          Devise: currency,
+        })),
+        `Comptes_Tresorerie_${todayIso()}`
+      );
+    } else {
+      exportRowsCsv(
+        payments.map((p) => ({
+          Piece: p.number,
+          Date: p.date,
+          Sens: p.direction,
+          Tiers: p.partnerName,
+          Compte: p.treasuryAccountName || '',
+          Mode: p.method,
+          Montant: p.amount,
+          Note: p.note || '',
+        })),
+        `Mouvements_Tresorerie_${todayIso()}`
+      );
+    }
+    notify('Export CSV Trésorerie téléchargé.', 'success');
+  };
+
+  const exportTreasuryExcel = () => {
+    exportWorkbookExcel(
+      [
+        {
+          name: 'Comptes et Caisses',
+          rows: treasuryAccounts.map((a) => ({
+            Compte: a.name,
+            Type: a.type,
+            Banque: a.bankName || '',
+            IBAN: a.iban || '',
+            CodeOHADA: a.accountCode || '',
+            Solde: a.balance,
+            Devise: currency,
+          })),
+        },
+        {
+          name: 'Mouvements financiers',
+          rows: payments.map((p) => ({
+            Piece: p.number,
+            Date: p.date,
+            Sens: p.direction,
+            Tiers: p.partnerName,
+            Compte: p.treasuryAccountName || '',
+            Mode: p.method,
+            Montant: p.amount,
+            Note: p.note || '',
+          })),
+        },
+      ],
+      `Tresorerie_FUREX_${todayIso()}`
+    );
+    notify('Classeur Excel Trésorerie téléchargé.', 'success');
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -155,6 +221,12 @@ export const TreasuryView: React.FC = () => {
         subtitle="Suivi des soldes bancaires, caisses physiques, encaissements, décaissements et rapprochement comptable"
         actions={
           <>
+            <button type="button" onClick={exportTreasuryCsv} className={btnSecondaryCls}>
+              <Download className="w-3.5 h-3.5" /> CSV
+            </button>
+            <button type="button" onClick={exportTreasuryExcel} className={btnSecondaryCls}>
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+            </button>
             <button
               type="button"
               onClick={() =>
@@ -203,21 +275,21 @@ export const TreasuryView: React.FC = () => {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Trésorerie consolidée</p>
-          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-blue-700 dark:text-blue-400">
+          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#FC3F1D]">
             {formatMoney(summary.total, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Disponibilités en banque</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums">{formatMoney(summary.bankTotal, currency)}</p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Encaissements cumulés</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums text-emerald-600">{formatMoney(summary.inflows, currency)}</p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Décaissements cumulés</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums text-amber-600">{formatMoney(summary.outflows, currency)}</p>
         </div>
@@ -235,7 +307,7 @@ export const TreasuryView: React.FC = () => {
       {tab === 'accounts' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {treasuryAccounts.map((acc) => (
-            <div key={acc.id} className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5 flex items-center justify-between gap-4">
+            <div key={acc.id} className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5 flex items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
                   <StatusLabel label={acc.type === 'banque' ? 'Banque (521)' : 'Caisse (571)'} tone="info" />
@@ -253,7 +325,7 @@ export const TreasuryView: React.FC = () => {
       )}
 
       {tab === 'payments' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {payments.length === 0 ? (
             <EmptyState title="Aucun mouvement financier" description="Les encaissements et décaissements apparaîtront ici." />
           ) : (

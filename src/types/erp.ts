@@ -1,6 +1,10 @@
 import { Timestamp } from 'firebase/firestore';
 
+export type AccountType = 'entreprise' | 'particulier';
+
 export type ModuleId =
+  | 'launcher'
+  | 'appstore'
   | 'dashboard'
   | 'crm'
   | 'sales'
@@ -11,7 +15,8 @@ export type ModuleId =
   | 'hr'
   | 'reporting'
   | 'admin'
-  | 'docs';
+  | 'docs'
+  | 'dynamic_module';
 
 export type RoleCode =
   | 'admin'
@@ -29,8 +34,13 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  address?: string;
   defaultCompanyId?: string;
   language?: 'fr' | 'en';
+  accountType?: AccountType;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -38,6 +48,11 @@ export interface UserProfile {
 export interface Company {
   id: string;
   name: string;
+  accountType?: AccountType;
+  ownerFirstName?: string;
+  ownerLastName?: string;
+  sector?: string;
+  city?: string;
   legalForm?: string;
   taxId?: string;
   rccm?: string;
@@ -46,6 +61,9 @@ export interface Company {
   address?: string;
   phone?: string;
   email?: string;
+  passwordSalt?: string;
+  passwordHash?: string;
+  enabledModules?: string[];
   ownerId: string;
   memberUids: string[];
   isDemo: boolean;
@@ -558,4 +576,38 @@ export interface NotificationItem {
   ownerId: string;
   memberUids: string[];
   createdAt?: Timestamp;
+}
+
+export interface ModuleRecord {
+  id: string;
+  moduleId: string;
+  title: string;
+  reference?: string;
+  partnerName?: string;
+  category?: string;
+  amount?: number;
+  quantity?: number;
+  status: 'brouillon' | 'en_cours' | 'valide' | 'termine' | 'annule';
+  date: string;
+  notes?: string;
+  ownerId: string;
+  memberUids: string[];
+  isDemo: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface CustomModule {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  description?: string;
+  iconName?: string;
+  accentColor?: string;
+  active: boolean;
+  ownerId: string;
+  memberUids: string[];
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
 }

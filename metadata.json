@@ -1,6 +1,6 @@
 {
-  "name": "CECILE — NEXUS ERP",
-  "description": "NEXUS ERP (Projet CECILE) — Système intégré de gestion d'entreprise modulaire : Administration, CRM, Ventes, Achats, Stocks, Comptabilité OHADA, Trésorerie, RH et Analytics.",
+  "name": "FUREX ERP",
+  "description": "FUREX ERP : Plateforme modulaire de gestion Entreprise & Particulier avec plus de 60 modules métiers inspirés d'Odoo : CRM, Ventes, Stocks, Achats, Comptabilité OHADA, Trésorerie, RH, Projets, Opérations et Analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

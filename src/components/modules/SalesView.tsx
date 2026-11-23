@@ -1,11 +1,19 @@
 import React, { useState } from 'react';
-import { Plus, FileDown, CheckCircle2, Receipt, CreditCard, ArrowRight, Trash2 } from 'lucide-react';
+import { Plus, FileDown, CheckCircle2, Receipt, CreditCard, ArrowRight, Trash2, Download, FileSpreadsheet, AlertCircle } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
 import { addDaysIso, formatDateFr, formatMoney, generateDocNumber, todayIso } from '../../lib/format';
-import { exportInvoicePdf, exportQuoteOrOrderPdf } from '../../lib/exports';
+import {
+  exportInvoicePdf,
+  exportQuoteOrOrderPdf,
+  exportRowsCsv,
+  exportSingleInvoiceCsv,
+  exportSingleInvoiceExcel,
+  exportWorkbookExcel,
+} from '../../lib/exports';
 import {
   computeDocumentTotals,
   convertQuoteToSalesOrder,
+  createDirectInvoice,
   createErpDoc,
   createInvoiceFromOrder,
   deleteErpDoc,
@@ -29,6 +37,7 @@ export const SalesView: React.FC = () => {
   const {
     user,
     activeCompany,
+    setActiveModule,
     customers,
     products,
     warehouses,
@@ -42,10 +51,12 @@ export const SalesView: React.FC = () => {
 
   const [tab, setTab] = useState<'invoices' | 'orders' | 'quotes'>('invoices');
 
-  // Quote/Order Builder Modal
-  const [docModal, setDocModal] = useState<'quote' | 'order' | null>(null);
+  // Quote/Order/Invoice Builder Modal
+  const [docModal, setDocModal] = useState<'quote' | 'order' | 'invoice' | null>(null);
   const [customerId, setCustomerId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [dueDate, setDueDate] = useState(addDaysIso(30));
+  const [deductStock, setDeductStock] = useState(true);
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DocumentLine[]>([]);
 
@@ -63,9 +74,11 @@ export const SalesView: React.FC = () => {
   const ownerId = activeCompany.ownerId;
   const memberUids = activeCompany.memberUids;
 
-  const openBuilder = (kind: 'quote' | 'order') => {
+  const openBuilder = (kind: 'quote' | 'order' | 'invoice') => {
     setCustomerId(customers[0]?.id || '');
     setWarehouseId(warehouses[0]?.id || '');
+    setDueDate(addDaysIso(30));
+    setDeductStock(products.some((p) => p.stockQty > 0));
     setNotes('');
     if (products.length > 0) {
       const p = products[0];
@@ -78,7 +91,7 @@ export const SalesView: React.FC = () => {
           qty: 1,
           unitPrice: p.salePrice,
           discountPct: 0,
-          taxRate: p.taxRate ?? 19.25,
+          taxRate: p.taxRate ?? 0,
           lineTotal: p.salePrice,
         },
       ]);
@@ -101,7 +114,7 @@ export const SalesView: React.FC = () => {
         qty: 1,
         unitPrice: p.salePrice,
         discountPct: 0,
-        taxRate: p.taxRate ?? 19.25,
+        taxRate: p.taxRate ?? 0,
         lineTotal: p.salePrice,
       },
     ]);
@@ -120,7 +133,7 @@ export const SalesView: React.FC = () => {
               name: p.name,
               categoryName: p.categoryName,
               unitPrice: p.salePrice,
-              taxRate: p.taxRate ?? 19.25,
+              taxRate: p.taxRate ?? 0,
             }
           : l
       )
@@ -188,6 +201,28 @@ export const SalesView: React.FC = () => {
         );
         notify('Commande client enregistrée.', 'success');
         setTab('orders');
+      } else if (docModal === 'invoice') {
+        const whId = warehouseId || warehouses[0]?.id || 'default';
+        const whName = warehouses.find((w) => w.id === whId)?.name || 'Entrepôt Principal';
+        const created = await createDirectInvoice({
+          companyId: activeCompany.id,
+          customerId: cust.id,
+          customerName: cust.name,
+          customerEmail: cust.email,
+          warehouseId: whId,
+          warehouseName: whName,
+          lines: totals.lines,
+          dueDate,
+          notes,
+          deductStock,
+          accounts,
+          uid: user.uid,
+          email: user.email || '',
+          ownerId,
+          memberUids,
+        });
+        notify(`Facture ${created.number} générée. Vous pouvez l'exporter en PDF, CSV ou Excel.`, 'success');
+        setTab('invoices');
       }
       setDocModal(null);
     } catch (err) {
@@ -298,18 +333,124 @@ export const SalesView: React.FC = () => {
     }
   };
 
+  const exportSalesCsv = () => {
+    if (tab === 'orders') {
+      exportRowsCsv(
+        salesOrders.map((o) => ({
+          Numero: o.number,
+          Client: o.customerName,
+          Date: o.date,
+          SousTotalHT: o.subtotal,
+          Remises: o.discountTotal,
+          TVA: o.taxTotal,
+          TotalTTC: o.total,
+          Statut: o.status,
+        })),
+        `Commandes_Clients_${todayIso()}`
+      );
+    } else if (tab === 'quotes') {
+      exportRowsCsv(
+        quotes.map((q) => ({
+          Numero: q.number,
+          Client: q.customerName,
+          Date: q.date,
+          Validite: q.validUntil,
+          SousTotalHT: q.subtotal,
+          TVA: q.taxTotal,
+          TotalTTC: q.total,
+          Statut: q.status,
+        })),
+        `Devis_Clients_${todayIso()}`
+      );
+    } else {
+      exportRowsCsv(
+        invoices.map((i) => ({
+          Numero: i.number,
+          Client: i.customerName,
+          Date: i.date,
+          Echeance: i.dueDate,
+          TotalTTC: i.total,
+          Paye: i.paidAmount,
+          SoldeDu: i.balanceDue,
+          Statut: i.status,
+        })),
+        `Factures_Clients_${todayIso()}`
+      );
+    }
+    notify('Export CSV téléchargé.', 'success');
+  };
+
+  const exportSalesExcel = () => {
+    exportWorkbookExcel(
+      [
+        {
+          name: 'Factures clients',
+          rows: invoices.map((i) => ({
+            Numero: i.number,
+            Client: i.customerName,
+            Date: i.date,
+            Echeance: i.dueDate,
+            TotalTTC: i.total,
+            Paye: i.paidAmount,
+            SoldeDu: i.balanceDue,
+            Statut: i.status,
+          })),
+        },
+        {
+          name: 'Commandes clients',
+          rows: salesOrders.map((o) => ({
+            Numero: o.number,
+            Client: o.customerName,
+            Date: o.date,
+            TotalTTC: o.total,
+            Statut: o.status,
+          })),
+        },
+        {
+          name: 'Devis',
+          rows: quotes.map((q) => ({
+            Numero: q.number,
+            Client: q.customerName,
+            Date: q.date,
+            Validite: q.validUntil,
+            TotalTTC: q.total,
+            Statut: q.status,
+          })),
+        },
+      ],
+      `Ventes_FUREX_${todayIso()}`
+    );
+    notify('Classeur Excel Ventes téléchargé.', 'success');
+  };
+
+  const modalTitle =
+    docModal === 'quote'
+      ? 'Créer un devis client'
+      : docModal === 'order'
+      ? 'Créer une commande client'
+      : 'Générer une facture client';
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Ventes, Commandes & Facturation"
-        subtitle="Cycle complet : Devis → Commande (sortie stock) → Facture PDF → Encaissement & Écriture OHADA"
+        subtitle="Créez directement une facture exportable (PDF, CSV, Excel) ou suivez le cycle Devis → Commande → Facture"
         actions={
           <>
+            <button type="button" onClick={exportSalesCsv} className={btnSecondaryCls}>
+              <Download className="w-3.5 h-3.5" /> CSV
+            </button>
+            <button type="button" onClick={exportSalesExcel} className={btnSecondaryCls}>
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+            </button>
             <button type="button" onClick={() => openBuilder('quote')} className={btnSecondaryCls}>
               <Plus className="w-3.5 h-3.5" /> Nouveau devis
             </button>
-            <button type="button" onClick={() => openBuilder('order')} className={btnPrimaryCls}>
+            <button type="button" onClick={() => openBuilder('order')} className={btnSecondaryCls}>
               <Plus className="w-3.5 h-3.5" /> Nouvelle commande
+            </button>
+            <button type="button" onClick={() => openBuilder('invoice')} className={btnPrimaryCls}>
+              <Receipt className="w-3.5 h-3.5" /> Nouvelle facture
             </button>
           </>
         }
@@ -326,11 +467,13 @@ export const SalesView: React.FC = () => {
       />
 
       {tab === 'invoices' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {invoices.length === 0 ? (
             <EmptyState
               title="Aucune facture client"
-              description="Validez une commande client puis cliquez sur « Facturer » pour générer la facture et l’écriture comptable."
+              description="Créez directement une facture client ou validez une commande pour générer la facture et l'exporter en PDF, CSV ou Excel."
+              actionLabel="Nouvelle facture"
+              onAction={() => openBuilder('invoice')}
             />
           ) : (
             <table className="w-full text-left border-collapse text-xs">
@@ -343,7 +486,7 @@ export const SalesView: React.FC = () => {
                   <th className="py-3 px-4 font-medium text-right">Payé</th>
                   <th className="py-3 px-4 font-medium text-right">Solde dû</th>
                   <th className="py-3 px-4 font-medium">Statut</th>
-                  <th className="py-3 px-4 font-medium text-right">Actions</th>
+                  <th className="py-3 px-4 font-medium text-right">Exports & Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -378,7 +521,7 @@ export const SalesView: React.FC = () => {
                       />
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <div className="inline-flex items-center gap-1.5">
+                      <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
                         {inv.balanceDue > 0 && inv.status !== 'annulee' && (
                           <button
                             type="button"
@@ -391,12 +534,39 @@ export const SalesView: React.FC = () => {
                         )}
                         <button
                           type="button"
-                          onClick={() => exportInvoicePdf(inv, activeCompany, currency)}
+                          onClick={() => {
+                            exportInvoicePdf(inv, activeCompany, currency);
+                            notify(`Facture ${inv.number} exportée en PDF.`, 'success');
+                          }}
                           className="px-2 py-1 text-[11px] font-medium border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
                           title="Télécharger PDF"
                         >
                           <FileDown className="w-3 h-3 inline mr-1" />
                           PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            exportSingleInvoiceExcel(inv, activeCompany);
+                            notify(`Facture ${inv.number} exportée en Excel.`, 'success');
+                          }}
+                          className="px-2 py-1 text-[11px] font-medium border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                          title="Télécharger Excel"
+                        >
+                          <FileSpreadsheet className="w-3 h-3 inline mr-1" />
+                          Excel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            exportSingleInvoiceCsv(inv);
+                            notify(`Facture ${inv.number} exportée en CSV.`, 'success');
+                          }}
+                          className="px-2 py-1 text-[11px] font-medium border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                          title="Télécharger CSV"
+                        >
+                          <Download className="w-3 h-3 inline mr-1" />
+                          CSV
                         </button>
                       </div>
                     </td>
@@ -409,7 +579,7 @@ export const SalesView: React.FC = () => {
       )}
 
       {tab === 'orders' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {salesOrders.length === 0 ? (
             <EmptyState
               title="Aucune commande client"
@@ -458,7 +628,7 @@ export const SalesView: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleValidateOrder(order)}
-                            className="px-2 py-1 text-[11px] font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded"
+                            className="px-2 py-1 text-[11px] font-semibold bg-[#FC3F1D] hover:bg-[#E03212] text-white rounded"
                           >
                             <CheckCircle2 className="w-3 h-3 inline mr-1" />
                             Valider & Sortir Stock
@@ -492,7 +662,7 @@ export const SalesView: React.FC = () => {
       )}
 
       {tab === 'quotes' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {quotes.length === 0 ? (
             <EmptyState
               title="Aucun devis enregistré"
@@ -530,7 +700,7 @@ export const SalesView: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleConvertQuote(q)}
-                            className="px-2 py-1 text-[11px] font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded"
+                            className="px-2 py-1 text-[11px] font-semibold bg-[#FC3F1D] hover:bg-[#E03212] text-white rounded"
                           >
                             <ArrowRight className="w-3 h-3 inline mr-1" />
                             Convertir en commande
@@ -560,49 +730,133 @@ export const SalesView: React.FC = () => {
         </div>
       )}
 
-      {/* Quote / SalesOrder Builder Modal */}
+      {/* Quote / SalesOrder / Direct Invoice Builder Modal */}
       <Modal
         open={docModal !== null}
-        title={docModal === 'quote' ? 'Créer un devis client' : 'Créer une commande client'}
+        title={modalTitle}
         onClose={() => setDocModal(null)}
         maxWidth="max-w-3xl"
       >
         <form onSubmit={handleSaveDoc} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {(customers.length === 0 || products.length === 0) && (
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>
+                  {customers.length === 0 && products.length === 0
+                    ? 'Créez d’abord un client (CRM) et un produit (Stocks) pour établir un document.'
+                    : customers.length === 0
+                    ? 'Aucun client enregistré dans le module CRM.'
+                    : 'Aucun article enregistré dans le catalogue Stocks.'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {customers.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDocModal(null);
+                      setActiveModule('crm');
+                    }}
+                    className="px-2.5 py-1 bg-amber-600 text-white font-semibold rounded text-[11px]"
+                  >
+                    Créer un client
+                  </button>
+                )}
+                {products.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDocModal(null);
+                      setActiveModule('inventory');
+                    }}
+                    className="px-2.5 py-1 bg-amber-600 text-white font-semibold rounded text-[11px]"
+                  >
+                    Créer un produit
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className={labelCls}>Client *</label>
               <select required className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-                <option value="">— Sélectionner —</option>
+                <option value="">Sélectionner un client</option>
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
-            {docModal === 'order' && (
+            {(docModal === 'order' || docModal === 'invoice') && (
               <div>
                 <label className={labelCls}>Entrepôt d’expédition *</label>
                 <select required className={inputCls} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+                  <option value="">Sélectionner un entrepôt</option>
                   {warehouses.map((w) => (
                     <option key={w.id} value={w.id}>{w.name}</option>
                   ))}
                 </select>
               </div>
             )}
+            {docModal === 'invoice' && (
+              <div>
+                <label className={labelCls}>Date d’échéance</label>
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                />
+              </div>
+            )}
           </div>
+
+          {docModal === 'invoice' && (
+            <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deductStock}
+                onChange={(e) => setDeductStock(e.target.checked)}
+                className="rounded border-slate-300 text-[#FC3F1D] focus:ring-[#FC3F1D]"
+              />
+              <span>
+                Déduire automatiquement les quantités du stock de l’entrepôt (décochez si article sans stock ou prestation directe)
+              </span>
+            </label>
+          )}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Lignes d’articles</span>
-              <button type="button" onClick={addLine} className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline">
+              <button
+                type="button"
+                onClick={addLine}
+                disabled={products.length === 0}
+                className="text-xs font-medium text-[#FC3F1D] hover:underline disabled:opacity-50"
+              >
                 + Ajouter une ligne
               </button>
             </div>
+
+            {lines.length > 0 && (
+              <div className="hidden sm:grid grid-cols-12 gap-2 px-2 text-[11px] font-medium text-slate-500">
+                <div className="col-span-4">Article</div>
+                <div className="col-span-2">Qté</div>
+                <div className="col-span-2">P.U. HT</div>
+                <div className="col-span-2">Remise %</div>
+                <div className="col-span-1">TVA %</div>
+                <div className="col-span-1 text-right">Suppr.</div>
+              </div>
+            )}
+
             {lines.map((line, idx) => (
               <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 dark:bg-slate-900/60 p-2 rounded border border-slate-200 dark:border-slate-800">
-                <div className="col-span-12 sm:col-span-5">
+                <div className="col-span-12 sm:col-span-4">
                   <select className={inputCls} value={line.productId} onChange={(e) => updateLineProduct(idx, e.target.value)}>
                     {products.map((p) => (
-                      <option key={p.id} value={p.id}>{p.sku} — {p.name} (Stock: {p.stockQty})</option>
+                      <option key={p.id} value={p.id}>{p.sku} · {p.name} (Stock: {p.stockQty})</option>
                     ))}
                   </select>
                 </div>
@@ -630,20 +884,34 @@ export const SalesView: React.FC = () => {
                     }
                   />
                 </div>
-                <div className="col-span-3 sm:col-span-2">
+                <div className="col-span-2 sm:col-span-2">
                   <input
                     type="number"
                     min="0"
                     max="100"
                     className={inputCls}
-                    placeholder="Remise %"
+                    placeholder="Rem %"
                     value={line.discountPct}
                     onChange={(e) =>
                       setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, discountPct: Number(e.target.value) || 0 } : l)))
                     }
                   />
                 </div>
-                <div className="col-span-2 sm:col-span-1 text-right">
+                <div className="col-span-2 sm:col-span-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    className={inputCls}
+                    placeholder="TVA"
+                    value={line.taxRate}
+                    onChange={(e) =>
+                      setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, taxRate: Number(e.target.value) || 0 } : l)))
+                    }
+                  />
+                </div>
+                <div className="col-span-1 text-right">
                   <button
                     type="button"
                     onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}
@@ -673,8 +941,8 @@ export const SalesView: React.FC = () => {
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setDocModal(null)} className={btnSecondaryCls}>Annuler</button>
-            <button type="submit" disabled={busy} className={btnPrimaryCls}>
-              {busy ? 'Enregistrement...' : 'Enregistrer'}
+            <button type="submit" disabled={busy || customers.length === 0 || lines.length === 0} className={btnPrimaryCls}>
+              {busy ? 'Enregistrement...' : docModal === 'invoice' ? 'Générer la facture' : 'Enregistrer'}
             </button>
           </div>
         </form>

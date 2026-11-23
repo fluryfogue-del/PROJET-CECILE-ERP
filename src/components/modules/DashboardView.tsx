@@ -29,6 +29,7 @@ export const DashboardView: React.FC = () => {
     salesOrders,
     invoices,
     products,
+    purchaseOrders,
     supplierInvoices,
     payrolls,
     payments,
@@ -36,6 +37,12 @@ export const DashboardView: React.FC = () => {
     opportunities,
     treasuryAccounts,
   } = useErp();
+
+  const isVirginWorkspace =
+    customers.length === 0 &&
+    products.length === 0 &&
+    invoices.length === 0 &&
+    purchaseOrders.length === 0;
 
   const currency = activeCompany?.currency || 'XAF';
 
@@ -200,7 +207,7 @@ export const DashboardView: React.FC = () => {
         actions={
           <>
             <button type="button" onClick={() => setActiveModule('sales')} className={btnSecondaryCls}>
-              Nouvelle vente
+              Nouvelle facture
             </button>
             <button type="button" onClick={() => setActiveModule('reporting')} className={btnSecondaryCls}>
               Rapports & Exports
@@ -209,6 +216,59 @@ export const DashboardView: React.FC = () => {
         }
       />
 
+      {isVirginWorkspace && (
+        <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-xl p-5 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-display text-sm font-bold text-[#111216] dark:text-white">
+                Espace vierge prêt à l’emploi
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Tous vos compteurs démarrent à zéro. Réalisez vos opérations ci-dessous pour alimenter vos indicateurs et générer vos factures.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveModule('crm')}
+              className="text-left p-3.5 rounded-xl border border-[#E6E8EC] dark:border-[#262933] hover:border-[#FC3F1D] transition-colors cursor-pointer"
+            >
+              <span className="text-[11px] font-bold text-[#FC3F1D]">Étape 1</span>
+              <p className="text-xs font-bold text-[#111216] dark:text-white mt-0.5">Créer un client</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">CRM & Clients</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveModule('inventory')}
+              className="text-left p-3.5 rounded-xl border border-[#E6E8EC] dark:border-[#262933] hover:border-[#FC3F1D] transition-colors cursor-pointer"
+            >
+              <span className="text-[11px] font-bold text-[#FC3F1D]">Étape 2</span>
+              <p className="text-xs font-bold text-[#111216] dark:text-white mt-0.5">Créer un produit</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Catalogue & Stocks</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveModule('purchases')}
+              className="text-left p-3.5 rounded-xl border border-[#E6E8EC] dark:border-[#262933] hover:border-[#FC3F1D] transition-colors cursor-pointer"
+            >
+              <span className="text-[11px] font-bold text-[#FC3F1D]">Étape 3</span>
+              <p className="text-xs font-bold text-[#111216] dark:text-white mt-0.5">Effectuer un achat</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Achats & Réception stock</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveModule('sales')}
+              className="text-left p-3.5 rounded-xl border border-[#E6E8EC] dark:border-[#262933] hover:border-[#FC3F1D] transition-colors cursor-pointer"
+            >
+              <span className="text-[11px] font-bold text-[#FC3F1D]">Étape 4</span>
+              <p className="text-xs font-bold text-[#111216] dark:text-white mt-0.5">Générer & exporter une facture</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">PDF, CSV & Excel</p>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 8 Real KPIs Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((card) => (
@@ -216,11 +276,11 @@ export const DashboardView: React.FC = () => {
             key={card.label}
             type="button"
             onClick={() => setActiveModule(card.module)}
-            className="text-left bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 hover:border-blue-500 rounded-lg p-4 transition-colors group"
+            className="text-left bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 hover:border-[#FC3F1D] rounded-lg p-4 transition-colors group"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{card.label}</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors" />
+              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#FC3F1D] transition-colors" />
             </div>
             <p className={`mt-2 font-mono text-xl font-bold tabular-nums ${card.highlight || 'text-slate-900 dark:text-white'}`}>
               {card.value}
@@ -231,7 +291,7 @@ export const DashboardView: React.FC = () => {
 
       {/* Charts Row 1: Monthly Revenue + Expenses & Sales by Category */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-8 bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
+        <div className="lg:col-span-8 bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
@@ -262,7 +322,7 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="lg:col-span-4 bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
+        <div className="lg:col-span-4 bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
           <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
             Ventes par catégorie
           </h2>
@@ -314,7 +374,7 @@ export const DashboardView: React.FC = () => {
 
       {/* Charts Row 2: Top Products & Commercial Performance */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
           <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
             Produits les plus vendus
           </h2>
@@ -340,7 +400,7 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5">
           <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
             Performances commerciales (Pipeline CRM)
           </h2>
@@ -368,7 +428,7 @@ export const DashboardView: React.FC = () => {
       </div>
 
       {/* Predictive Insights & Operational Alerts */}
-      <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3">
+      <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
@@ -410,7 +470,7 @@ export const DashboardView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setActiveModule(ins.targetModule)}
-                  className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline shrink-0"
+                  className="text-xs font-medium text-[#FC3F1D] hover:underline shrink-0"
                 >
                   Ouvrir
                 </button>

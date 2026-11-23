@@ -8,8 +8,13 @@
         "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
         "email": { "type": "string", "format": "email", "maxLength": 200 },
         "displayName": { "type": "string", "maxLength": 120 },
+        "firstName": { "type": "string", "maxLength": 80 },
+        "lastName": { "type": "string", "maxLength": 80 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "address": { "type": "string", "maxLength": 250 },
         "defaultCompanyId": { "type": "string", "maxLength": 128 },
         "language": { "type": "string", "enum": ["fr", "en"], "maxLength": 10 },
+        "accountType": { "type": "string", "enum": ["entreprise", "particulier"], "maxLength": 20 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -17,10 +22,15 @@
     },
     "Company": {
       "title": "Company",
-      "description": "Entreprise / Entité juridique isolée dans NEXUS ERP.",
+      "description": "Espace de travail Entreprise ou Particulier isolé et protégé par mot de passe dans FUREX ERP.",
       "type": "object",
       "properties": {
         "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "accountType": { "type": "string", "enum": ["entreprise", "particulier"], "maxLength": 20 },
+        "ownerFirstName": { "type": "string", "maxLength": 80 },
+        "ownerLastName": { "type": "string", "maxLength": 80 },
+        "sector": { "type": "string", "maxLength": 120 },
+        "city": { "type": "string", "maxLength": 120 },
         "legalForm": { "type": "string", "maxLength": 60 },
         "taxId": { "type": "string", "maxLength": 80 },
         "rccm": { "type": "string", "maxLength": 80 },
@@ -29,6 +39,9 @@
         "address": { "type": "string", "maxLength": 250 },
         "phone": { "type": "string", "maxLength": 40 },
         "email": { "type": "string", "maxLength": 160 },
+        "passwordSalt": { "type": "string", "maxLength": 64 },
+        "passwordHash": { "type": "string", "maxLength": 128 },
+        "enabledModules": { "type": "array" },
         "ownerId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "memberUids": { "type": "array" },
         "isDemo": { "type": "boolean" },
@@ -597,6 +610,48 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "message", "severity", "module", "read", "ownerId", "memberUids", "createdAt"]
+    },
+    "ModuleRecord": {
+      "title": "ModuleRecord",
+      "description": "Enregistrement opérationnel pour les 60+ modules métiers et modules personnalisés.",
+      "type": "object",
+      "properties": {
+        "moduleId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "reference": { "type": "string", "maxLength": 60 },
+        "partnerName": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "amount": { "type": "number" },
+        "quantity": { "type": "number" },
+        "status": { "type": "string", "enum": ["brouillon", "en_cours", "valide", "termine", "annule"] },
+        "date": { "type": "string", "maxLength": 30 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["moduleId", "title", "status", "date", "ownerId", "memberUids", "isDemo", "createdAt", "updatedAt"]
+    },
+    "CustomModule": {
+      "title": "CustomModule",
+      "description": "Module personnalisé créé par l'utilisateur dans son espace FUREX ERP.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 2, "maxLength": 50 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "category": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 300 },
+        "iconName": { "type": "string", "maxLength": 40 },
+        "accentColor": { "type": "string", "maxLength": 30 },
+        "active": { "type": "boolean" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "category", "active", "ownerId", "memberUids", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -715,6 +770,14 @@
     "/companies/{companyId}/notifications/{notifId}": {
       "schema": { "$ref": "#/entities/NotificationItem" },
       "description": "Alertes et notifications internes."
+    },
+    "/companies/{companyId}/moduleRecords/{recordId}": {
+      "schema": { "$ref": "#/entities/ModuleRecord" },
+      "description": "Données métier persistées des 60+ modules activables."
+    },
+    "/companies/{companyId}/customModules/{customModuleId}": {
+      "schema": { "$ref": "#/entities/CustomModule" },
+      "description": "Modules personnalisés créés dans l'espace de travail."
     }
   }
 }

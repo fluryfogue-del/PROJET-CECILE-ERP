@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Check, X, CreditCard, Trash2, Edit3 } from 'lucide-react';
+import { Plus, Check, X, CreditCard, Trash2, Edit3, Upload, Download, FileSpreadsheet } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
 import { currentPeriod, formatDateFr, formatMoney, todayIso } from '../../lib/format';
+import { exportRowsCsv, exportWorkbookExcel } from '../../lib/exports';
 import { createErpDoc, deleteErpDoc, payEmployeePayroll, updateErpDoc } from '../../services/erpEngine';
 import { Employee, Payroll } from '../../types/erp';
+import { ImportSpreadsheetModal } from '../ImportSpreadsheetModal';
 import {
   EmptyState,
   Modal,
@@ -44,9 +46,10 @@ export const HrView: React.FC = () => {
     position: '',
     contractType: 'CDI' as Employee['contractType'],
     hireDate: todayIso(),
-    baseSalary: 350000,
+    baseSalary: 0,
     status: 'actif' as Employee['status'],
   });
+  const [importOpen, setImportOpen] = useState(false);
 
   // Leave Modal
   const [leaveModal, setLeaveModal] = useState(false);
@@ -109,7 +112,7 @@ export const HrView: React.FC = () => {
         position: '',
         contractType: 'CDI',
         hireDate: todayIso(),
-        baseSalary: 350000,
+        baseSalary: 0,
         status: 'actif',
       });
     }
@@ -139,7 +142,7 @@ export const HrView: React.FC = () => {
           {
             ...empForm,
             baseSalary: Number(empForm.baseSalary),
-            history: [`${empForm.hireDate} : Embauche ${empForm.contractType} — ${empForm.position}`],
+            history: [`${empForm.hireDate} : Embauche ${empForm.contractType} (${empForm.position})`],
             isDemo: false,
           },
           ownerId,
@@ -236,6 +239,99 @@ export const HrView: React.FC = () => {
     }
   };
 
+  const exportHrCsv = () => {
+    if (tab === 'leaves') {
+      exportRowsCsv(
+        leaves.map((l) => ({
+          Employe: l.employeeName,
+          Type: l.type,
+          Debut: l.startDate,
+          Fin: l.endDate,
+          Jours: l.days,
+          Statut: l.status,
+        })),
+        `Conges_RH_${todayIso()}`
+      );
+    } else if (tab === 'payrolls') {
+      exportRowsCsv(
+        payrolls.map((p) => ({
+          Periode: p.period,
+          Employe: p.employeeName,
+          Departement: p.departmentName,
+          SalaireBase: p.baseSalary,
+          Primes: p.bonuses || 0,
+          Retenues: p.deductions || 0,
+          NetAPayer: p.netSalary,
+          Statut: p.status,
+        })),
+        `Bulletins_Paie_${todayIso()}`
+      );
+    } else {
+      exportRowsCsv(
+        employees.map((e) => ({
+          Matricule: e.matricule,
+          Prenom: e.firstName,
+          Nom: e.lastName,
+          Email: e.email || '',
+          Telephone: e.phone || '',
+          Departement: e.departmentName,
+          Poste: e.position,
+          Contrat: e.contractType,
+          DateEmbauche: e.hireDate,
+          SalaireBase: e.baseSalary,
+          Statut: e.status,
+        })),
+        `Effectifs_RH_${todayIso()}`
+      );
+    }
+    notify('Export CSV téléchargé.', 'success');
+  };
+
+  const exportHrExcel = () => {
+    exportWorkbookExcel(
+      [
+        {
+          name: 'Employes',
+          rows: employees.map((e) => ({
+            Matricule: e.matricule,
+            Prenom: e.firstName,
+            Nom: e.lastName,
+            Departement: e.departmentName,
+            Poste: e.position,
+            Contrat: e.contractType,
+            SalaireBase: e.baseSalary,
+            Statut: e.status,
+          })),
+        },
+        {
+          name: 'Conges',
+          rows: leaves.map((l) => ({
+            Employe: l.employeeName,
+            Type: l.type,
+            Debut: l.startDate,
+            Fin: l.endDate,
+            Jours: l.days,
+            Statut: l.status,
+          })),
+        },
+        {
+          name: 'Paie',
+          rows: payrolls.map((p) => ({
+            Periode: p.period,
+            Employe: p.employeeName,
+            SalaireBase: p.baseSalary,
+            Primes: p.bonuses || 0,
+            Retenues: p.deductions || 0,
+            NetAPayer: p.netSalary,
+            Statut: p.status,
+          })),
+        },
+      ],
+      `RH_Paie_FUREX_${todayIso()}`
+    );
+    notify('Classeur Excel RH téléchargé.', 'success');
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -243,6 +339,15 @@ export const HrView: React.FC = () => {
         subtitle="Dossiers du personnel, contrats, départements, congés, absences et versement des rémunérations"
         actions={
           <>
+            <button type="button" onClick={() => setImportOpen(true)} className={btnSecondaryCls}>
+              <Upload className="w-3.5 h-3.5" /> Importer CSV/Excel
+            </button>
+            <button type="button" onClick={exportHrCsv} className={btnSecondaryCls}>
+              <Download className="w-3.5 h-3.5" /> CSV
+            </button>
+            <button type="button" onClick={exportHrExcel} className={btnSecondaryCls}>
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -278,17 +383,17 @@ export const HrView: React.FC = () => {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Effectif actif</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums">{hrStats.active} collaborateurs</p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Masse salariale mensuelle de base</p>
-          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-blue-700 dark:text-blue-400">
+          <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[#FC3F1D]">
             {formatMoney(hrStats.payrollMass, currency)}
           </p>
         </div>
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <p className="text-xs text-slate-500">Demandes de congés en attente</p>
           <p className="mt-1 font-mono text-lg font-bold tabular-nums">{hrStats.pendingLeaves}</p>
         </div>
@@ -305,7 +410,7 @@ export const HrView: React.FC = () => {
       />
 
       {tab === 'employees' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {employees.length === 0 ? (
             <EmptyState title="Aucun employé" description="Ajoutez votre premier collaborateur." actionLabel="Nouvel employé" onAction={() => openEmpForm()} />
           ) : (
@@ -327,7 +432,7 @@ export const HrView: React.FC = () => {
                     <td className="py-3 px-4 font-mono">{emp.matricule}</td>
                     <td className="py-3 px-4">
                       <p className="font-semibold text-slate-900 dark:text-white">{emp.firstName} {emp.lastName}</p>
-                      <p className="text-slate-400">{emp.email || emp.phone || '—'}</p>
+                      <p className="text-slate-400">{emp.email || emp.phone || '-'}</p>
                     </td>
                     <td className="py-3 px-4">
                       <p className="font-medium">{emp.position}</p>
@@ -359,7 +464,7 @@ export const HrView: React.FC = () => {
       )}
 
       {tab === 'leaves' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {leaves.length === 0 ? (
             <EmptyState title="Aucune demande de congé" description="Enregistrez les demandes de congés ou absences." />
           ) : (
@@ -405,7 +510,7 @@ export const HrView: React.FC = () => {
       )}
 
       {tab === 'payrolls' && (
-        <div className="bg-white dark:bg-[#0B1426] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+        <div className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
           {payrolls.length === 0 ? (
             <EmptyState title="Aucun bulletin de paie" description="Générez les fiches de paie mensuelles de vos salariés." />
           ) : (
@@ -585,6 +690,12 @@ export const HrView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <ImportSpreadsheetModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        defaultTarget="employees"
+      />
     </div>
   );
 };

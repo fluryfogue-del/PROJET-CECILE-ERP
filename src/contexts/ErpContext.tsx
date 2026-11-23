@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import {
   User,
   onAuthStateChanged,
@@ -13,6 +13,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
 } from 'firebase/firestore';
 import {
@@ -23,14 +24,18 @@ import {
   OperationType,
 } from '../lib/firebase';
 import { getTranslations, LanguageCode } from '../i18n/translations';
-import { createCompanyWorkspace } from '../services/erpEngine';
+import { getCatalogModule, MODULE_CATALOG } from '../data/moduleCatalog';
+import { hashWorkspacePassword, verifyWorkspacePassword } from '../lib/security';
+import { updateWorkspacePassword } from '../services/erpEngine';
 import {
   Account,
+  AccountType,
   AuditLog,
   Category,
   Company,
   CompanyMember,
   Customer,
+  CustomModule,
   Department,
   Employee,
   Interaction,
@@ -39,6 +44,7 @@ import {
   Lead,
   LeaveRequest,
   ModuleId,
+  ModuleRecord,
   NotificationItem,
   Opportunity,
   Payment,
@@ -63,22 +69,47 @@ export interface ToastMessage {
   message: string;
 }
 
+export interface PendingPersonalInfo {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  address: string;
+}
+
 interface ErpContextValue {
   user: User | null;
   profile: UserProfile | null;
   authReady: boolean;
-  bootstrapping: boolean;
-  signInWithGoogle: () => Promise<void>;
+  companiesLoaded: boolean;
+  pendingAccountType: AccountType;
+  setPendingAccountType: (type: AccountType) => void;
+  pendingPersonalInfo: PendingPersonalInfo;
+  setPendingPersonalInfo: (info: PendingPersonalInfo) => void;
+  updateUserAccountType: (type: AccountType) => Promise<void>;
+  signInWithGoogle: (selectedType?: AccountType, personal?: PendingPersonalInfo) => Promise<void>;
   logout: () => Promise<void>;
 
   companies: Company[];
   activeCompany: Company | null;
   setActiveCompanyId: (id: string) => void;
+  isWorkspaceUnlocked: boolean;
+  unlockedCompanyIds: string[];
+  markWorkspaceUnlocked: (companyId: string) => void;
+  unlockWorkspace: (companyId: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  initializeLegacyWorkspacePassword: (companyId: string, password: string) => Promise<void>;
+  lockWorkspace: (companyId?: string) => void;
+
+  createWorkspaceOpen: boolean;
+  setCreateWorkspaceOpen: (open: boolean) => void;
   currentMember: CompanyMember | null;
   hasModuleAccess: (moduleId: ModuleId) => boolean;
 
   activeModule: ModuleId;
   setActiveModule: (m: ModuleId) => void;
+  activeCatalogModuleId: string;
+  setActiveCatalogModuleId: (id: string) => void;
+  openCatalogModule: (catalogOrCustomId: string) => void;
+  enabledCatalogIds: string[];
 
   theme: 'light' | 'dark';
   toggleTheme: () => void;
@@ -90,7 +121,7 @@ interface ErpContextValue {
   notify: (message: string, type?: ToastMessage['type']) => void;
   dismissToast: (id: string) => void;
 
-  // Live collections
+  // Live collections (only populated after workspace password unlock)
   members: CompanyMember[];
   departments: Department[];
   roles: RoleDefinition[];
@@ -118,19 +149,79 @@ interface ErpContextValue {
   leaves: LeaveRequest[];
   payrolls: Payroll[];
   notifications: NotificationItem[];
+  moduleRecords: ModuleRecord[];
+  customModules: CustomModule[];
 }
 
 const ErpContext = createContext<ErpContextValue | null>(null);
+
+const PENDING_ACCOUNT_TYPE_KEY = 'furex_pending_account_type';
+const PENDING_PERSONAL_INFO_KEY = 'furex_pending_personal_info';
+
+const EMPTY_PERSONAL: PendingPersonalInfo = {
+  firstName: '',
+  lastName: '',
+  phone: '',
+  address: '',
+};
 
 export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [bootstrapping, setBootstrapping] = useState(false);
+  const [companiesLoaded, setCompaniesLoaded] = useState(false);
+
+  const [pendingAccountType, setPendingAccountTypeState] = useState<AccountType>(() => {
+    try {
+      const saved = sessionStorage.getItem(PENDING_ACCOUNT_TYPE_KEY);
+      return saved === 'particulier' ? 'particulier' : 'entreprise';
+    } catch {
+      return 'entreprise';
+    }
+  });
+
+  const [pendingPersonalInfo, setPendingPersonalInfoState] = useState<PendingPersonalInfo>(() => {
+    try {
+      const raw = sessionStorage.getItem(PENDING_PERSONAL_INFO_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<PendingPersonalInfo>;
+        return {
+          firstName: parsed.firstName || '',
+          lastName: parsed.lastName || '',
+          phone: parsed.phone || '',
+          address: parsed.address || '',
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return EMPTY_PERSONAL;
+  });
+
+  const setPendingAccountType = useCallback((type: AccountType) => {
+    setPendingAccountTypeState(type);
+    try {
+      sessionStorage.setItem(PENDING_ACCOUNT_TYPE_KEY, type);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const setPendingPersonalInfo = useCallback((info: PendingPersonalInfo) => {
+    setPendingPersonalInfoState(info);
+    try {
+      sessionStorage.setItem(PENDING_PERSONAL_INFO_KEY, JSON.stringify(info));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [activeCompanyId, setActiveCompanyId] = useState<string>('');
-  const [activeModule, setActiveModule] = useState<ModuleId>('dashboard');
+  const [unlockedCompanyIds, setUnlockedCompanyIds] = useState<string[]>([]);
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [activeModule, setActiveModule] = useState<ModuleId>('launcher');
+  const [activeCatalogModuleId, setActiveCatalogModuleId] = useState<string>('mod_dashboard');
 
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [language, setLanguage] = useState<LanguageCode>('fr');
@@ -164,8 +255,40 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [moduleRecords, setModuleRecords] = useState<ModuleRecord[]>([]);
+  const [customModules, setCustomModules] = useState<CustomModule[]>([]);
 
-  const autoSeededForUid = useRef<string | null>(null);
+  const clearCollections = useCallback(() => {
+    setMembers([]);
+    setDepartments([]);
+    setRoles([]);
+    setAuditLogs([]);
+    setLeads([]);
+    setCustomers([]);
+    setOpportunities([]);
+    setInteractions([]);
+    setCategories([]);
+    setWarehouses([]);
+    setProducts([]);
+    setStockMovements([]);
+    setQuotes([]);
+    setSalesOrders([]);
+    setInvoices([]);
+    setSuppliers([]);
+    setPurchaseRequests([]);
+    setPurchaseOrders([]);
+    setSupplierInvoices([]);
+    setAccounts([]);
+    setJournalEntries([]);
+    setTreasuryAccounts([]);
+    setPayments([]);
+    setEmployees([]);
+    setLeaves([]);
+    setPayrolls([]);
+    setNotifications([]);
+    setModuleRecords([]);
+    setCustomModules([]);
+  }, []);
 
   const notify = useCallback((message: string, type: ToastMessage['type'] = 'info') => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -187,21 +310,99 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  const signInWithGoogle = useCallback(async () => {
-    try {
-      await signInWithPopup(auth, googleAuthProvider);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Échec de connexion Google';
-      notify(msg, 'error');
-    }
-  }, [notify]);
+  const signInWithGoogle = useCallback(
+    async (selectedType?: AccountType, personal?: PendingPersonalInfo) => {
+      if (selectedType) {
+        setPendingAccountType(selectedType);
+      }
+      if (personal) {
+        setPendingPersonalInfo(personal);
+      }
+      try {
+        await signInWithPopup(auth, googleAuthProvider);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Échec de connexion Google';
+        notify(msg, 'error');
+      }
+    },
+    [notify, setPendingAccountType, setPendingPersonalInfo]
+  );
+
+  const updateUserAccountType = useCallback(
+    async (type: AccountType) => {
+      setPendingAccountType(type);
+      if (!user) return;
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          accountType: type,
+          updatedAt: serverTimestamp(),
+        });
+        setProfile((prev) => (prev ? { ...prev, accountType: type } : prev));
+      } catch (err) {
+        console.error('Failed to update accountType:', err);
+      }
+    },
+    [user, setPendingAccountType]
+  );
+
+  const markWorkspaceUnlocked = useCallback((companyId: string) => {
+    setUnlockedCompanyIds((prev) => (prev.includes(companyId) ? prev : [...prev, companyId]));
+  }, []);
+
+  const lockWorkspace = useCallback(
+    (companyId?: string) => {
+      if (companyId) {
+        setUnlockedCompanyIds((prev) => prev.filter((id) => id !== companyId));
+      } else {
+        setUnlockedCompanyIds([]);
+      }
+      clearCollections();
+    },
+    [clearCollections]
+  );
+
+  const unlockWorkspace = useCallback(
+    async (companyId: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+      if (!password || password.trim().length === 0) {
+        return { ok: false, error: 'Veuillez saisir un mot de passe non vide.' };
+      }
+      const target = companies.find((c) => c.id === companyId);
+      if (!target) {
+        return { ok: false, error: 'Espace de travail introuvable.' };
+      }
+      if (!target.passwordSalt || !target.passwordHash) {
+        return { ok: false, error: 'Mot de passe de sécurité non encore initialisé.' };
+      }
+      const valid = await verifyWorkspacePassword(password, target.passwordSalt, target.passwordHash);
+      if (!valid) {
+        return { ok: false, error: 'Mot de passe incorrect. Accès refusé.' };
+      }
+      markWorkspaceUnlocked(companyId);
+      return { ok: true };
+    },
+    [companies, markWorkspaceUnlocked]
+  );
+
+  const initializeLegacyWorkspacePassword = useCallback(
+    async (companyId: string, password: string) => {
+      const { salt, hash } = await hashWorkspacePassword(password);
+      await updateWorkspacePassword(companyId, salt, hash);
+      markWorkspaceUnlocked(companyId);
+    },
+    [markWorkspaceUnlocked]
+  );
 
   const logout = useCallback(async () => {
     await signOut(auth);
     setCompanies([]);
+    setCompaniesLoaded(false);
     setActiveCompanyId('');
+    setUnlockedCompanyIds([]);
+    clearCollections();
     setProfile(null);
-  }, []);
+    setCreateWorkspaceOpen(false);
+    setActiveModule('launcher');
+  }, [clearCollections]);
 
   // Auth listener & User profile sync
   useEffect(() => {
@@ -209,9 +410,37 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setUser(fbUser);
       if (!fbUser) {
         setAuthReady(true);
+        setCompaniesLoaded(false);
+        setUnlockedCompanyIds([]);
+        clearCollections();
         setProfile(null);
         return;
       }
+
+      let preferredType: AccountType = 'entreprise';
+      let storedPersonal: PendingPersonalInfo = EMPTY_PERSONAL;
+      try {
+        const saved = sessionStorage.getItem(PENDING_ACCOUNT_TYPE_KEY);
+        if (saved === 'particulier') preferredType = 'particulier';
+        const rawInfo = sessionStorage.getItem(PENDING_PERSONAL_INFO_KEY);
+        if (rawInfo) {
+          const p = JSON.parse(rawInfo) as Partial<PendingPersonalInfo>;
+          storedPersonal = {
+            firstName: (p.firstName || '').trim(),
+            lastName: (p.lastName || '').trim(),
+            phone: (p.phone || '').trim(),
+            address: (p.address || '').trim(),
+          };
+        }
+      } catch {
+        // ignore
+      }
+
+      const combinedName =
+        `${storedPersonal.firstName} ${storedPersonal.lastName}`.trim() ||
+        fbUser.displayName ||
+        fbUser.email?.split('@')[0] ||
+        'Utilisateur';
 
       try {
         const userRef = doc(db, 'users', fbUser.uid);
@@ -219,9 +448,14 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!snap.exists()) {
           const newProf: UserProfile = {
             uid: fbUser.uid,
-            email: fbUser.email || 'utilisateur@nexus-erp.local',
-            displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Utilisateur',
+            email: fbUser.email || 'utilisateur@furex-erp.com',
+            displayName: combinedName,
+            firstName: storedPersonal.firstName,
+            lastName: storedPersonal.lastName,
+            phone: storedPersonal.phone,
+            address: storedPersonal.address,
             language: 'fr',
+            accountType: preferredType,
           };
           await setDoc(userRef, {
             ...newProf,
@@ -231,6 +465,35 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setProfile(newProf);
         } else {
           const data = snap.data() as UserProfile;
+          const updates: Record<string, unknown> = {};
+          if (!data.accountType) {
+            updates.accountType = preferredType;
+            data.accountType = preferredType;
+          } else {
+            setPendingAccountType(data.accountType);
+          }
+          if (storedPersonal.firstName && !data.firstName) {
+            updates.firstName = storedPersonal.firstName;
+            data.firstName = storedPersonal.firstName;
+          }
+          if (storedPersonal.lastName && !data.lastName) {
+            updates.lastName = storedPersonal.lastName;
+            data.lastName = storedPersonal.lastName;
+          }
+          if (storedPersonal.phone && !data.phone) {
+            updates.phone = storedPersonal.phone;
+            data.phone = storedPersonal.phone;
+          }
+          if (storedPersonal.address && !data.address) {
+            updates.address = storedPersonal.address;
+            data.address = storedPersonal.address;
+          }
+          if (Object.keys(updates).length > 0) {
+            await updateDoc(userRef, {
+              ...updates,
+              updatedAt: serverTimestamp(),
+            });
+          }
           setProfile(data);
           if (data.language === 'en' || data.language === 'fr') {
             setLanguage(data.language);
@@ -243,11 +506,12 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
     return () => unsub();
-  }, []);
+  }, [setPendingAccountType, clearCollections]);
 
-  // Companies listener + auto-demo bootstrap if user has 0 companies
+  // Companies listener
   useEffect(() => {
     if (!authReady || !user) return;
+    setCompaniesLoaded(false);
 
     const q = query(
       collection(db, 'companies'),
@@ -256,32 +520,10 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const unsub = onSnapshot(
       q,
-      async (snapshot) => {
+      (snapshot) => {
         const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Company));
         setCompanies(list);
-
-        if (list.length === 0 && autoSeededForUid.current !== user.uid) {
-          autoSeededForUid.current = user.uid;
-          setBootstrapping(true);
-          try {
-            const newId = await createCompanyWorkspace({
-              uid: user.uid,
-              email: user.email || 'admin@nexus-erp.local',
-              displayName: user.displayName || 'Administrateur',
-              name: 'CECILE Distribution SARL',
-              currency: 'XAF',
-              accountingStandard: 'OHADA',
-              withDemoData: true,
-            });
-            setActiveCompanyId(newId);
-            notify('Environnement de démonstration CECILE (OHADA) initialisé.', 'success');
-          } catch (err) {
-            console.error('Bootstrap failed:', err);
-          } finally {
-            setBootstrapping(false);
-          }
-          return;
-        }
+        setCompaniesLoaded(true);
 
         if (list.length > 0) {
           setActiveCompanyId((prev) => {
@@ -291,19 +533,29 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
             return list[0].id;
           });
+        } else {
+          setActiveCompanyId('');
         }
       },
       (error) => {
+        setCompaniesLoaded(true);
         handleFirestoreError(error, OperationType.LIST, 'companies');
       }
     );
 
     return () => unsub();
-  }, [authReady, user, profile?.defaultCompanyId, notify]);
+  }, [authReady, user, profile?.defaultCompanyId]);
 
-  // Subscribe to all subcollections of activeCompanyId
+  const isWorkspaceUnlocked = Boolean(
+    activeCompanyId && unlockedCompanyIds.includes(activeCompanyId)
+  );
+
+  // Subscribe to all subcollections ONLY when the workspace is unlocked by password
   useEffect(() => {
-    if (!authReady || !user || !activeCompanyId) return;
+    clearCollections();
+    if (!authReady || !user || !activeCompanyId || !isWorkspaceUnlocked) {
+      return;
+    }
 
     const subMap: Array<{
       name: string;
@@ -336,6 +588,8 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { name: 'leaves', setter: setLeaves },
       { name: 'payrolls', setter: setPayrolls },
       { name: 'notifications', setter: setNotifications },
+      { name: 'moduleRecords', setter: setModuleRecords },
+      { name: 'customModules', setter: setCustomModules },
     ];
 
     const unsubs = subMap.map(({ name, setter }) => {
@@ -359,20 +613,43 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [authReady, user, activeCompanyId]);
+  }, [authReady, user, activeCompanyId, isWorkspaceUnlocked, clearCollections]);
 
   const activeCompany = companies.find((c) => c.id === activeCompanyId) || null;
   const currentMember = members.find((m) => m.uid === user?.uid) || null;
 
+  const enabledCatalogIds = useMemo(() => {
+    if (activeCompany?.enabledModules && activeCompany.enabledModules.length > 0) {
+      return activeCompany.enabledModules;
+    }
+    return MODULE_CATALOG.map((m) => m.id);
+  }, [activeCompany?.enabledModules]);
+
   const hasModuleAccess = useCallback(
     (moduleId: ModuleId) => {
-      if (!activeCompany || !user) return false;
+      if (!activeCompany || !user || !isWorkspaceUnlocked) return false;
+      if (moduleId === 'launcher' || moduleId === 'appstore' || moduleId === 'dynamic_module') return true;
       if (activeCompany.ownerId === user.uid || user.email === 'fluryfogue@gmail.com') return true;
       if (!currentMember) return true;
       return currentMember.active && currentMember.allowedModules.includes(moduleId);
     },
-    [activeCompany, user, currentMember]
+    [activeCompany, user, currentMember, isWorkspaceUnlocked]
   );
+
+  const openCatalogModule = useCallback((catalogOrCustomId: string) => {
+    const builtIn = getCatalogModule(catalogOrCustomId);
+    if (builtIn) {
+      setActiveCatalogModuleId(builtIn.id);
+      if (builtIn.targetModule === 'dynamic_module') {
+        setActiveModule('dynamic_module');
+      } else {
+        setActiveModule(builtIn.targetModule);
+      }
+      return;
+    }
+    setActiveCatalogModuleId(catalogOrCustomId);
+    setActiveModule('dynamic_module');
+  }, []);
 
   const t = getTranslations(language);
 
@@ -382,16 +659,33 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         user,
         profile,
         authReady,
-        bootstrapping,
+        companiesLoaded,
+        pendingAccountType,
+        setPendingAccountType,
+        pendingPersonalInfo,
+        setPendingPersonalInfo,
+        updateUserAccountType,
         signInWithGoogle,
         logout,
         companies,
         activeCompany,
         setActiveCompanyId,
+        isWorkspaceUnlocked,
+        unlockedCompanyIds,
+        markWorkspaceUnlocked,
+        unlockWorkspace,
+        initializeLegacyWorkspacePassword,
+        lockWorkspace,
+        createWorkspaceOpen,
+        setCreateWorkspaceOpen,
         currentMember,
         hasModuleAccess,
         activeModule,
         setActiveModule,
+        activeCatalogModuleId,
+        setActiveCatalogModuleId,
+        openCatalogModule,
+        enabledCatalogIds,
         theme,
         toggleTheme,
         language,
@@ -427,6 +721,8 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         leaves,
         payrolls,
         notifications,
+        moduleRecords,
+        customModules,
       }}
     >
       {children}
