@@ -1,5 +1,5 @@
 name = "furex-erp"
-main = "worker.ts"
+main = "server/index.ts"
 compatibility_date = "2026-11-24"
 
 [assets]

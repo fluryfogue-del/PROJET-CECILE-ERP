@@ -1,9 +1,0 @@
-name = "cecile-erp-api"
-main = "index.ts"
-compatibility_date = "2026-11-24"
-
-[[d1_databases]]
-binding = "ma_base_de_donnees"
-database_name = "ma-base-de-donnees"
-database_id = "857175b0-b7ec-4492-acc4-c90aaffead08"
-migrations_dir = "../migrations"

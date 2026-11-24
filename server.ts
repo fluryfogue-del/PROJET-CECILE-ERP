@@ -3,7 +3,8 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
-import { apiApp, getLocalSqliteDb } from './server/index.ts';
+import { apiApp } from './server/index.ts';
+import { getLocalSqliteDb } from './server/db/sqliteAdapter.ts';
 
 const PORT = Number(process.env.PORT || 3000);
 const isProduction = process.env.NODE_ENV === 'production';

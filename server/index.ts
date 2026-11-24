@@ -1,5 +1,4 @@
 import { apiApp } from './api.ts';
-import { getLocalSqliteDb, LocalSqliteD1Adapter } from './db/sqliteAdapter.ts';
 import { DbClient } from './db/types.ts';
 
 export interface AssetsBinding {
@@ -36,7 +35,6 @@ function resolveAllowedOrigin(request: Request, env: CloudflareWorkerEnv): strin
     }
   }
 
-  // Allow local split-server dev (e.g. Vite on 3000/5173 -> Wrangler dev on 8787)
   if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
     return origin;
   }
@@ -59,7 +57,7 @@ function withCorsHeaders(response: Response, allowedOrigin: string | null): Resp
   });
 }
 
-export { apiApp, getLocalSqliteDb, LocalSqliteD1Adapter };
+export { apiApp };
 export type { DbClient };
 
 export default {
@@ -103,7 +101,7 @@ export default {
       return env.ASSETS.fetch(request);
     }
 
-    if (url.pathname === '/' || url.pathname === '/health') {
+    if (url.pathname === '/health') {
       return withCorsHeaders(
         new Response(
           JSON.stringify({

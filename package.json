@@ -12,8 +12,6 @@
     "lint": "tsc --noEmit",
     "cf:dev": "wrangler dev",
     "cf:deploy": "npm run build && wrangler deploy",
-    "cf:api:dev": "wrangler dev --config server/wrangler.toml",
-    "cf:api:deploy": "wrangler deploy --config server/wrangler.toml",
     "cf:migrate": "wrangler d1 migrations apply ma-base-de-donnees --local",
     "cf:migrate:prod": "wrangler d1 migrations apply ma-base-de-donnees --remote"
   },
