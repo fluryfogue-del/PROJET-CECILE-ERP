@@ -12,8 +12,10 @@
     "lint": "tsc --noEmit",
     "cf:dev": "wrangler dev",
     "cf:deploy": "npm run build && wrangler deploy",
-    "cf:migrate": "wrangler d1 migrations apply furex-erp-db --local",
-    "cf:migrate:prod": "wrangler d1 migrations apply furex-erp-db --remote"
+    "cf:api:dev": "wrangler dev --config server/wrangler.toml",
+    "cf:api:deploy": "wrangler deploy --config server/wrangler.toml",
+    "cf:migrate": "wrangler d1 migrations apply ma-base-de-donnees --local",
+    "cf:migrate:prod": "wrangler d1 migrations apply ma-base-de-donnees --remote"
   },
   "dependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",

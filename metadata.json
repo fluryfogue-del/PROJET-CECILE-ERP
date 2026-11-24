@@ -2,5 +2,7 @@
   "name": "FUREX ERP",
   "description": "FUREX ERP : Plateforme modulaire de gestion Entreprise & Particulier avec plus de 60 modules métiers inspirés d'Odoo : CRM, Ventes, Stocks, Achats, Comptabilité OHADA, Trésorerie, RH, Projets, Opérations et Analytics.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

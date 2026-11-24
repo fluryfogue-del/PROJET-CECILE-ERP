@@ -717,10 +717,20 @@ apiApp.onError((err, c) => {
   return c.json({ error: msg }, 400);
 });
 
-apiApp.get('/api/health', (c) => {
+apiApp.get('/api/health', async (c) => {
+  let dbStatus = 'unavailable';
+  if (c.env?.DB) {
+    try {
+      await c.env.DB.prepare('SELECT 1 as ok').first();
+      dbStatus = 'connected';
+    } catch {
+      dbStatus = 'error';
+    }
+  }
   return c.json({
-    ok: true,
+    ok: dbStatus === 'connected',
     service: 'furex-erp-api',
+    database: dbStatus,
     timestamp: nowIso(),
   });
 });
@@ -1168,6 +1178,12 @@ apiApp.post('/api/companies', async (c) => {
   );
 });
 
+apiApp.get('/api/companies/:companyId', async (c) => {
+  const company = c.get('company');
+  const mUids = await getCompanyMemberUids(c.env.DB, company.id);
+  return c.json({ company: mapCompanyDto(company, mUids) });
+});
+
 apiApp.post('/api/companies/:companyId/unlock', async (c) => {
   const user = c.get('user');
   const company = c.get('company');
@@ -1599,10 +1615,51 @@ apiApp.patch('/api/companies/:companyId/data/:collection/:docId', async (c) => {
 
   if (col === 'members') {
     if (!isOwnerOrAdmin(member, company)) return c.json({ error: 'Administrateur requis.' }, 403);
-    const activeVal = body.active !== undefined ? (body.active ? 1 : 0) : 1;
+    if (docId === company.owner_id && body.active === false) {
+      return c.json({ error: 'Impossible de désactiver le propriétaire de l’espace.' }, 400);
+    }
+    const existingMemberRow = await c.env.DB
+      .prepare('SELECT * FROM company_members WHERE company_id = ? AND id = ?')
+      .bind(company.id, docId)
+      .first<MemberRow>();
+    if (!existingMemberRow) return c.json({ error: 'Membre introuvable.' }, 404);
+
+    const nextActive =
+      body.active !== undefined ? (body.active ? 1 : 0) : existingMemberRow.active;
+    const nextRoleCode =
+      typeof body.roleCode === 'string' && body.roleCode.trim()
+        ? sanitizeText(body.roleCode, 40)
+        : existingMemberRow.role_code;
+    const nextDept =
+      typeof body.departmentName === 'string'
+        ? sanitizeText(body.departmentName, 120)
+        : existingMemberRow.department_name;
+
     await c.env.DB
-      .prepare('UPDATE company_members SET active = ?, updated_at = ? WHERE company_id = ? AND id = ?')
-      .bind(activeVal, nowIso(), company.id, docId)
+      .prepare(
+        'UPDATE company_members SET active = ?, role_code = ?, department_name = ?, updated_at = ? WHERE company_id = ? AND id = ?'
+      )
+      .bind(nextActive, nextRoleCode, nextDept, nowIso(), company.id, docId)
+      .run();
+    return c.json({ ok: true });
+  }
+
+  if (col === 'invoices') {
+    const inv = await c.env.DB
+      .prepare('SELECT * FROM invoices WHERE company_id = ? AND id = ?')
+      .bind(company.id, docId)
+      .first<InvoiceRow>();
+    if (!inv) return c.json({ error: 'Facture introuvable.' }, 404);
+    if (inv.status !== 'brouillon') {
+      return c.json({ error: 'Seules les factures brouillon peuvent être modifiées.' }, 400);
+    }
+    const nextDue = body.dueDate !== undefined ? sanitizeText(body.dueDate, 30) : inv.due_date;
+    const nextTerms =
+      body.paymentTerms !== undefined ? sanitizeText(body.paymentTerms, 120) : inv.payment_terms;
+    const nextNotes = body.notes !== undefined ? sanitizeText(body.notes, 500) : inv.notes;
+    await c.env.DB
+      .prepare('UPDATE invoices SET due_date = ?, payment_terms = ?, notes = ?, updated_at = ? WHERE company_id = ? AND id = ?')
+      .bind(nextDue, nextTerms, nextNotes, nowIso(), company.id, docId)
       .run();
     return c.json({ ok: true });
   }
@@ -1627,6 +1684,18 @@ apiApp.delete('/api/companies/:companyId/data/:collection/:docId', async (c) => 
 
   const col = c.req.param('collection');
   const docId = c.req.param('docId');
+
+  if (col === 'members') {
+    if (!isOwnerOrAdmin(member, company)) return c.json({ error: 'Administrateur requis.' }, 403);
+    if (docId === company.owner_id) {
+      return c.json({ error: 'Impossible de retirer le propriétaire de l’espace.' }, 400);
+    }
+    await c.env.DB
+      .prepare('DELETE FROM company_members WHERE company_id = ? AND id = ?')
+      .bind(company.id, docId)
+      .run();
+    return c.json({ ok: true });
+  }
 
   if (col === 'invoices') {
     const inv = await c.env.DB

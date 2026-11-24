@@ -49,6 +49,10 @@ export function notifyDataMutation(companyId: string) {
   });
 }
 
+const RAW_API_BASE = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+const API_BASE =
+  RAW_API_BASE && /^https?:\/\//i.test(RAW_API_BASE) ? RAW_API_BASE : '';
+
 export async function apiRequest<T>(
   path: string,
   options: {
@@ -72,7 +76,8 @@ export async function apiRequest<T>(
     }
   }
 
-  const response = await fetch(path, {
+  const targetUrl = path.startsWith('/') ? `${API_BASE}${path}` : `${API_BASE}/${path}`;
+  const response = await fetch(targetUrl, {
     method: options.method || 'GET',
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
