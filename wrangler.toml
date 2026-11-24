@@ -1,6 +1,6 @@
 name = "furex-erp"
 main = "server/index.ts"
-compatibility_date = "2026-11-24"
+compatibility_date = "2025-03-01"
 
 [assets]
 directory = "./dist"
