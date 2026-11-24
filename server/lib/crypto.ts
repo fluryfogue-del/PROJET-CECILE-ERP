@@ -98,16 +98,19 @@ export async function verifySecret(
   return constantTimeEqual(computed, expectedHash);
 }
 
-// Ephemeral fallback secret ONLY if SESSION_SECRET env var is unset (e.g. fresh local dev)
-const ephemeralBytes = new Uint8Array(32);
-crypto.getRandomValues(ephemeralBytes);
-const EPHEMERAL_FALLBACK_SECRET = toHex(ephemeralBytes);
+// Ephemeral fallback secret ONLY if SESSION_SECRET env var is unset (generated lazily inside request handler)
+let ephemeralFallbackSecret: string | null = null;
 
 export function resolveSessionSecret(envSecret?: string): string {
   if (envSecret && envSecret.trim().length >= 16) {
     return envSecret.trim();
   }
-  return EPHEMERAL_FALLBACK_SECRET;
+  if (!ephemeralFallbackSecret) {
+    const ephemeralBytes = new Uint8Array(32);
+    crypto.getRandomValues(ephemeralBytes);
+    ephemeralFallbackSecret = toHex(ephemeralBytes);
+  }
+  return ephemeralFallbackSecret;
 }
 
 async function signHmac(data: string, secret: string): Promise<string> {
