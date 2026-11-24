@@ -160,8 +160,8 @@ export async function createCompanyWorkspace(params: {
   displayName: string;
   ownerFirstName: string;
   ownerLastName: string;
-  phone: string;
-  address: string;
+  phone?: string;
+  address?: string;
   city?: string;
   sector?: string;
   legalForm?: string;
@@ -171,7 +171,7 @@ export async function createCompanyWorkspace(params: {
   accountType?: AccountType;
   currency: CurrencyCode;
   accountingStandard: AccountingStandard;
-  password: string;
+  password?: string;
   enabledModules?: string[];
   withDemoData?: boolean;
 }): Promise<string> {
@@ -197,10 +197,10 @@ export async function createCompanyWorkspace(params: {
       rccm: (params.rccm || '').trim(),
       currency: params.currency,
       accountingStandard: params.accountingStandard,
-      address: params.address.trim(),
-      phone: params.phone.trim(),
+      address: (params.address || '').trim(),
+      phone: (params.phone || '').trim(),
       email: params.email.trim(),
-      password: params.password,
+      password: params.password || '',
       enabledModules: resolvedModules,
     },
   });
@@ -211,6 +211,26 @@ export async function createCompanyWorkspace(params: {
 
   setWorkspaceToken(res.company.id, res.workspaceToken);
   return res.company.id;
+}
+
+export async function createOrOpenDemoWorkspace(reset = false): Promise<{
+  companyId: string;
+  workspaceToken: string;
+}> {
+  const res = await apiRequest<{
+    company: { id: string } | null;
+    workspaceToken: string;
+  }>('/api/companies/demo', {
+    method: 'POST',
+    body: { reset },
+  });
+
+  if (!res.company?.id || !res.workspaceToken) {
+    throw new Error('Impossible d’ouvrir l’espace de démonstration.');
+  }
+
+  setWorkspaceToken(res.company.id, res.workspaceToken);
+  return { companyId: res.company.id, workspaceToken: res.workspaceToken };
 }
 
 export async function updateWorkspaceEnabledModules(companyId: string, enabledModules: string[]) {

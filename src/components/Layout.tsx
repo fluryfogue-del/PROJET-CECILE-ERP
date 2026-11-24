@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   Layers,
   Lock,
+  Sparkles,
 } from 'lucide-react';
 import { useErp } from '../contexts/ErpContext';
 import { ModuleId } from '../types/erp';
@@ -47,6 +48,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     companies,
     activeCompany,
     setActiveCompanyId,
+    openDemoWorkspace,
     lockWorkspace,
     setCreateWorkspaceOpen,
     activeModule,
@@ -77,6 +79,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notifOpen, setNotifOpen] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   const coreNavItems: NavItem[] = [
     { id: 'dashboard', label: t.nav.dashboard, icon: LayoutDashboard },
@@ -274,7 +277,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       if (cust) return cust.name;
       return 'Module Spécialisé';
     }
-    return coreNavItems.find((n) => n.id === activeModule)?.label || 'FUREX ERP';
+    return coreNavItems.find((n) => n.id === activeModule)?.label || 'JESSI';
   }, [activeModule, activeCatalogModuleId, customModules, coreNavItems]);
 
   const SidebarContent = (
@@ -289,12 +292,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           }}
           className="flex items-center gap-2.5 text-left cursor-pointer"
         >
-          <div className="w-9 h-9 rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm">
-            FX
-          </div>
+          <img
+            src="/assets/aistudio/image_2c55d81b.png"
+            alt="JESSI"
+            className="w-9 h-9 rounded-xl object-cover border border-[#262933]"
+          />
           <div>
             <p className="font-display font-extrabold text-sm tracking-tight text-white leading-none">
-              FUREX ERP
+              JESSI
             </p>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               {activeCompany?.accountType === 'particulier' ? (
@@ -348,6 +353,25 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             ))}
           </select>
         </div>
+        {!activeCompany?.isDemo && (
+          <button
+            type="button"
+            disabled={demoLoading}
+            onClick={async () => {
+              setDemoLoading(true);
+              try {
+                await openDemoWorkspace(false);
+                setMobileMenuOpen(false);
+              } finally {
+                setDemoLoading(false);
+              }
+            }}
+            className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-white/5 hover:bg-white/10 text-slate-200 rounded-lg border border-[#2C303C] transition-colors cursor-pointer"
+          >
+            <Sparkles className="w-3 h-3 text-[#FC3F1D]" />
+            <span>{demoLoading ? 'Chargement...' : 'Espace Démo (66 modules)'}</span>
+          </button>
+        )}
       </div>
 
       {/* Super-App Navigation Links */}
@@ -567,7 +591,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 truncate">
               <span className="font-bold text-[#111216] dark:text-white truncate">
-                {activeCompany?.name || 'FUREX ERP'}
+                {activeCompany?.name || 'JESSI'}
               </span>
               <span aria-hidden="true">/</span>
               <span className="text-[#FC3F1D] font-semibold truncate">

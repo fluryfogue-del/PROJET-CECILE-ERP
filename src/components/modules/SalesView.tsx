@@ -460,7 +460,7 @@ export const SalesView: React.FC = () => {
           })),
         },
       ],
-      `Ventes_FUREX_${todayIso()}`
+      `Ventes_JESSI_${todayIso()}`
     );
     notify('Classeur Excel Ventes téléchargé.', 'success');
   };

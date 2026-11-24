@@ -45,11 +45,13 @@ const ErpShell: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F5F6F8] dark:bg-[#0D0E12] p-6">
         <div className="text-center space-y-3">
-          <div className="w-11 h-11 mx-auto rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm">
-            FX
-          </div>
+          <img
+            src="/assets/aistudio/image_2c55d81b.png"
+            alt="JESSI"
+            className="w-12 h-12 mx-auto rounded-xl object-cover border border-[#E6E8EC] dark:border-[#262933] shadow-xs"
+          />
           <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-            Initialisation de la session FUREX ERP...
+            Reconnexion automatique JESSI...
           </p>
         </div>
       </div>
@@ -64,14 +66,16 @@ const ErpShell: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F5F6F8] dark:bg-[#0D0E12] p-6">
         <div className="max-w-md w-full bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-6 text-center space-y-3">
-          <div className="w-11 h-11 mx-auto rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm">
-            FX
-          </div>
+          <img
+            src="/assets/aistudio/image_2c55d81b.png"
+            alt="JESSI"
+            className="w-12 h-12 mx-auto rounded-xl object-cover border border-[#E6E8EC] dark:border-[#262933] shadow-xs"
+          />
           <h2 className="font-display text-base font-bold text-[#111216] dark:text-white">
-            Vérification de votre accès FUREX ERP
+            Ouverture de votre accès JESSI
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            Préparation de votre environnement sécurisé...
+            Chargement de votre espace de travail...
           </p>
         </div>
       </div>

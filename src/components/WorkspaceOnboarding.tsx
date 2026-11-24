@@ -13,13 +13,15 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useErp } from '../contexts/ErpContext';
 import { MODULE_CATALOG, MODULE_FAMILIES, MODULE_PRESETS, ModuleFamily } from '../catalog/moduleCatalog';
 import { createCompanyWorkspace } from '../services/erpEngine';
 import {
   isNonEmptyText,
-  validatePersonalDetails,
   validateWorkspacePasswordPair,
 } from '../lib/security';
 import { AccountingStandard, AccountType, CurrencyCode } from '../types/erp';
@@ -39,6 +41,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
     updateUserAccountType,
     setActiveCompanyId,
     markWorkspaceUnlocked,
+    openDemoWorkspace,
     setActiveModule,
     notify,
   } = useErp();
@@ -55,6 +58,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
   const [phone, setPhone] = useState(profile?.phone || pendingPersonalInfo.phone || '');
   const [address, setAddress] = useState(profile?.address || pendingPersonalInfo.address || '');
   const [email, setEmail] = useState(user?.email || '');
+  const [editOwnerCoords, setEditOwnerCoords] = useState(false);
 
   const [name, setName] = useState('');
   const [legalForm, setLegalForm] = useState(initialType === 'entreprise' ? 'SARL' : 'Particulier');
@@ -65,6 +69,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
   const [currency, setCurrency] = useState<CurrencyCode>('XAF');
   const [accountingStandard, setAccountingStandard] = useState<AccountingStandard>('OHADA');
 
+  const [useSeparatePin, setUseSeparatePin] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -79,6 +84,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
   const [familyFilter, setFamilyFilter] = useState<'ALL' | ModuleFamily>('ALL');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
 
   const handleAccountTypeChange = (nextType: AccountType) => {
     setAccountType(nextType);
@@ -112,29 +118,26 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
     });
   }, [familyFilter, search]);
 
+  const handleOpenDemo = async () => {
+    if (!user) return;
+    setDemoBusy(true);
+    setFormError(null);
+    try {
+      await openDemoWorkspace(false);
+      notify('Espace Démo JESSI ouvert avec les 66+ modules pré-remplis.', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erreur lors de l’ouverture de l’espace démo.';
+      setFormError(msg);
+      notify(msg, 'error');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     setFormError(null);
-
-    const personalErr = validatePersonalDetails({
-      lastName,
-      firstName,
-      phone,
-      address,
-    });
-    if (personalErr) {
-      setFormError(personalErr);
-      notify(personalErr, 'warning');
-      return;
-    }
-
-    if (!isNonEmptyText(email, 5) || !email.includes('@')) {
-      const errMsg = 'Une adresse e-mail valide est obligatoire.';
-      setFormError(errMsg);
-      notify(errMsg, 'warning');
-      return;
-    }
 
     if (!isNonEmptyText(name, 2)) {
       const errMsg =
@@ -146,28 +149,13 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
       return;
     }
 
-    if (!isNonEmptyText(sector, 2)) {
-      const errMsg =
-        accountType === 'entreprise'
-          ? 'Le secteur d’activité de l’entreprise est obligatoire.'
-          : 'Votre profession ou domaine d’activité est obligatoire.';
-      setFormError(errMsg);
-      notify(errMsg, 'warning');
-      return;
-    }
-
-    if (!isNonEmptyText(city, 2)) {
-      const errMsg = 'La ville / pays est obligatoire.';
-      setFormError(errMsg);
-      notify(errMsg, 'warning');
-      return;
-    }
-
-    const passErr = validateWorkspacePasswordPair(password, confirmPassword);
-    if (passErr) {
-      setFormError(passErr);
-      notify(passErr, 'warning');
-      return;
+    if (useSeparatePin) {
+      const passErr = validateWorkspacePasswordPair(password, confirmPassword);
+      if (passErr) {
+        setFormError(passErr);
+        notify(passErr, 'warning');
+        return;
+      }
     }
 
     if (selectedModules.length === 0) {
@@ -182,8 +170,8 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
       await updateUserAccountType(accountType);
       const companyId = await createCompanyWorkspace({
         uid: user.uid,
-        email: email.trim(),
-        displayName: `${firstName.trim()} ${lastName.trim()}`.trim(),
+        email: (email || user.email).trim(),
+        displayName: `${firstName.trim()} ${lastName.trim()}`.trim() || user.displayName,
         ownerFirstName: firstName.trim(),
         ownerLastName: lastName.trim(),
         phone: phone.trim(),
@@ -197,7 +185,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
         accountType,
         currency,
         accountingStandard,
-        password,
+        password: useSeparatePin ? password : '',
         enabledModules: selectedModules,
         withDemoData: false,
       });
@@ -205,7 +193,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
       setActiveCompanyId(companyId);
       setActiveModule('launcher');
       notify(
-        `Espace « ${name.trim()} » créé et sécurisé avec ${selectedModules.length} modules actifs.`,
+        `Espace vierge « ${name.trim()} » créé avec ${selectedModules.length} modules actifs.`,
         'success'
       );
       if (onCreated) onCreated(companyId);
@@ -224,38 +212,51 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
         {/* Top Studio Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm">
-              FX
-            </div>
+            <img
+              src="/assets/aistudio/image_2c55d81b.png"
+              alt="JESSI"
+              className="w-10 h-10 rounded-xl object-cover border border-[#E6E8EC] dark:border-[#262933]"
+            />
             <div>
               <h1 className="font-display text-lg sm:text-xl font-extrabold text-[#111216] dark:text-white">
-                Création d’Espace de Travail : FUREX ERP
+                Nouvel Espace de Travail · JESSI
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Renseignez vos informations, définissez un mot de passe de protection et choisissez vos modules parmi les 66+ disponibles.
+                Nommez votre espace vierge et choisissez vos modules parmi les 66+ disponibles.
               </p>
             </div>
           </div>
-          {onCancel && (
+          <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={onCancel}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-[#E6E8EC] dark:border-[#262933] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer"
+              disabled={demoBusy}
+              onClick={handleOpenDemo}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-[#111216] dark:bg-white text-white dark:text-[#111216] hover:opacity-90 disabled:opacity-60 transition-opacity cursor-pointer"
             >
-              <X className="w-4 h-4" /> Annuler
+              <Sparkles className="w-3.5 h-3.5 text-[#FC3F1D]" />
+              <span>{demoBusy ? 'Chargement démo...' : 'Explorer l’Espace Démo (66 modules)'}</span>
             </button>
-          )}
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-[#E6E8EC] dark:border-[#262933] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer"
+              >
+                <X className="w-4 h-4" /> Annuler
+              </button>
+            )}
+          </div>
         </div>
 
         <form onSubmit={handleCreate} noValidate className="grid lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Complete Identity, Business Info & Security Password */}
+          {/* Left Column: Streamlined Business Setup */}
           <div className="lg:col-span-5 space-y-4 bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-6">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wider text-[#FC3F1D]">
-                Étape 1 · Profil & Coordonnées obligatoires
+                Étape 1 · Configuration de votre espace
               </p>
               <h2 className="font-display text-base font-bold text-[#111216] dark:text-white mt-1">
-                Informations Entreprise ou Particulier
+                Entreprise ou Particulier
               </h2>
             </div>
 
@@ -305,84 +306,91 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
               </button>
             </div>
 
-            {/* Personal / Owner Identity */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Nom *</label>
-                <input
-                  type="text"
-                  required
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Ex: FOGUE"
-                  className={inputCls}
-                />
+            {/* Verified owner summary without re-typing */}
+            <div className="rounded-xl bg-[#F5F6F8] dark:bg-[#0D0E12] border border-[#E6E8EC] dark:border-[#262933] p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold text-[#111216] dark:text-white truncate">
+                    Titulaire : {`${firstName} ${lastName}`.trim() || user?.displayName}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {email || user?.email}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditOwnerCoords((p) => !p)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#FC3F1D] hover:underline shrink-0 cursor-pointer"
+                >
+                  {editOwnerCoords ? (
+                    <>
+                      Masquer <ChevronUp className="w-3 h-3" />
+                    </>
+                  ) : (
+                    <>
+                      Modifier <ChevronDown className="w-3 h-3" />
+                    </>
+                  )}
+                </button>
               </div>
-              <div>
-                <label className={labelCls}>Prénoms *</label>
-                <input
-                  type="text"
-                  required
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="Ex: Flury"
-                  className={inputCls}
-                />
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Téléphone *</label>
-                <input
-                  type="tel"
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+237 699 00 00 00"
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>E-mail professionnel *</label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="contact@entreprise.com"
-                  className={inputCls}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Adresse complète *</label>
-                <input
-                  type="text"
-                  required
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Quartier, Rue, Immeuble"
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Ville / Pays *</label>
-                <input
-                  type="text"
-                  required
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  placeholder="Ex: Douala, Cameroun"
-                  className={inputCls}
-                />
-              </div>
+              {editOwnerCoords && (
+                <div className="pt-2 border-t border-[#E6E8EC] dark:border-[#262933] space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className={labelCls}>Nom</label>
+                      <input
+                        type="text"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Prénoms</label>
+                      <input
+                        type="text"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className={labelCls}>Téléphone</label>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>E-mail pro</label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Adresse</label>
+                    <input
+                      type="text"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      className={inputCls}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Workspace / Activity Details */}
-            <div className="pt-2 border-t border-[#E6E8EC] dark:border-[#262933] space-y-3">
+            <div className="space-y-3">
               <div>
                 <label className={labelCls}>
                   {accountType === 'entreprise'
@@ -396,8 +404,8 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
                   onChange={(e) => setName(e.target.value)}
                   placeholder={
                     accountType === 'entreprise'
-                      ? 'Ex: FUREX Distribution SARL'
-                      : 'Ex: Cabinet Conseil Fogue'
+                      ? 'Ex: JESSI Distribution SARL'
+                      : 'Ex: Cabinet Conseil Flury'
                   }
                   className={inputCls}
                 />
@@ -406,24 +414,36 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>
-                    {accountType === 'entreprise' ? 'Secteur d’activité *' : 'Profession / Activité *'}
+                    {accountType === 'entreprise' ? 'Secteur (optionnel)' : 'Activité (optionnel)'}
                   </label>
                   <input
                     type="text"
-                    required
                     value={sector}
                     onChange={(e) => setSector(e.target.value)}
                     placeholder={
                       accountType === 'entreprise'
-                        ? 'Commerce, BTP, Services...'
+                        ? 'Commerce, BTP...'
                         : 'Consultant, Commerce...'
                     }
                     className={inputCls}
                   />
                 </div>
-                {accountType === 'entreprise' ? (
+                <div>
+                  <label className={labelCls}>Ville / Pays (optionnel)</label>
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="Ex: Douala, Cameroun"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              {accountType === 'entreprise' && (
+                <div className="grid grid-cols-3 gap-2.5">
                   <div>
-                    <label className={labelCls}>Forme juridique</label>
+                    <label className={labelCls}>Forme</label>
                     <select
                       value={legalForm}
                       onChange={(e) => setLegalForm(e.target.value)}
@@ -432,43 +452,27 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
                       <option value="SARL">SARL</option>
                       <option value="SAS">SAS</option>
                       <option value="SA">SA</option>
-                      <option value="Entreprise Individuelle">Entreprise Individuelle</option>
-                      <option value="Association / ONG">Association / ONG</option>
+                      <option value="Entreprise Individuelle">Individuelle</option>
+                      <option value="Association / ONG">Association</option>
                     </select>
                   </div>
-                ) : (
                   <div>
-                    <label className={labelCls}>N° Pièce / CNI (optionnel)</label>
+                    <label className={labelCls}>NIF / NUI</label>
                     <input
                       type="text"
                       value={taxId}
                       onChange={(e) => setTaxId(e.target.value)}
-                      placeholder="Référence identité"
-                      className={inputCls}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {accountType === 'entreprise' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelCls}>NIF / N° Contribuable</label>
-                    <input
-                      type="text"
-                      value={taxId}
-                      onChange={(e) => setTaxId(e.target.value)}
-                      placeholder="Ex: M042619874321K"
+                      placeholder="Optionnel"
                       className={inputCls}
                     />
                   </div>
                   <div>
-                    <label className={labelCls}>Registre RCCM</label>
+                    <label className={labelCls}>RCCM</label>
                     <input
                       type="text"
                       value={rccm}
                       onChange={(e) => setRccm(e.target.value)}
-                      placeholder="Ex: RC/DLA/2026/B/1482"
+                      placeholder="Optionnel"
                       className={inputCls}
                     />
                   </div>
@@ -503,48 +507,53 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
               </div>
             </div>
 
-            {/* Security Password */}
-            <div className="pt-2 border-t border-[#E6E8EC] dark:border-[#262933] space-y-3">
-              <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-[#FC3F1D]" />
-                <p className="text-xs font-bold text-[#111216] dark:text-white">
-                  Mot de passe de l’espace de travail *
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelCls}>Mot de passe *</label>
-                  <div className="relative">
+            {/* Optional separate PIN toggle */}
+            <div className="pt-2 border-t border-[#E6E8EC] dark:border-[#262933] space-y-2.5">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={useSeparatePin}
+                  onChange={(e) => setUseSeparatePin(e.target.checked)}
+                  className="rounded border-slate-300 text-[#FC3F1D] focus:ring-[#FC3F1D]"
+                />
+                <Lock className="w-3.5 h-3.5 text-[#FC3F1D]" />
+                <span>Ajouter un code de verrouillage séparé (optionnel)</span>
+              </label>
+
+              {useSeparatePin && (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className={labelCls}>Code d’espace *</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Min. 4 caractères"
+                        className={`${inputCls} pr-9`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((p) => !p)}
+                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                        aria-label="Afficher le code"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Confirmation *</label>
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Min. 4 caractères"
-                      className={`${inputCls} pr-9`}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Répétez"
+                      className={inputCls}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((p) => !p)}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
-                      aria-label="Afficher le mot de passe"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
                   </div>
                 </div>
-                <div>
-                  <label className={labelCls}>Confirmation *</label>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Répétez"
-                    className={inputCls}
-                  />
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Virgin workspace guarantee */}
@@ -553,7 +562,7 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
                 Démarrage vierge à 0 (données 100 % réelles)
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                Aucun prix, stock ou chiffre d’affaires factice n’est pré-rempli. Toutes vos métriques se calculent uniquement à partir de vos saisies et imports CSV/Excel.
+                Votre espace personnel ou entreprise démarre entièrement vierge : aucun client, produit ou facture factice. Pour tester les 66+ modules déjà remplis, cliquez sur « Explorer l’Espace Démo ».
               </p>
             </div>
 
@@ -564,8 +573,8 @@ export const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onCanc
             >
               <span>
                 {busy
-                  ? 'Création et chiffrement...'
-                  : `Créer et accéder à l’espace (${selectedModules.length} modules)`}
+                  ? 'Création de l’espace vierge...'
+                  : `Créer mon espace vierge (${selectedModules.length} modules)`}
               </span>
               <ArrowRight className="w-4 h-4" />
             </button>

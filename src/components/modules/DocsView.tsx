@@ -6,7 +6,7 @@ export const DocsView: React.FC = () => {
     <div className="space-y-6 max-w-4xl">
       <PageHeader
         title="Centre de Documentation & Référentiel Opérationnel"
-        subtitle="FUREX ERP · Architecture modulaire à 66+ applications, comptabilité SYSCOHADA et gouvernance des données"
+        subtitle="JESSI · Architecture modulaire à 66+ applications, comptabilité SYSCOHADA et gouvernance des données"
       />
 
       <section className="bg-white dark:bg-[#16181F] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-3">
@@ -16,7 +16,7 @@ export const DocsView: React.FC = () => {
         <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5 list-disc pl-5 leading-relaxed">
           <li><strong>Espaces de travail sur mesure</strong> : Lors de la création de votre espace, vous sélectionnez votre profil (<strong>Entreprise</strong> ou <strong>Particulier</strong>) et activez librement vos modules parmi plus de 66 applications métiers.</li>
           <li><strong>Évolutivité permanente</strong> : Ajoutez de nouveaux modules à la volée depuis le <em>Catalogue Modules</em> ou créez vos propres modules personnalisés.</li>
-          <li><strong>Persistance Cloud sécurisée</strong> : Chaque espace est isolé dans Firestore avec contrôle d’accès RBAC par rôle, département et journal d’audit immuable.</li>
+          <li><strong>Persistance Cloud sécurisée</strong> : Chaque espace est isolé dans la base relationnelle Cloudflare D1 / SQL avec contrôle d’accès RBAC par rôle, département et journal d’audit immuable.</li>
         </ul>
       </section>
 

@@ -120,7 +120,7 @@ export const AppStoreView: React.FC = () => {
           code: cleanCode,
           name: cleanName,
           category: customForm.category.trim() || 'Métier Spécialisé',
-          description: customForm.description.trim() || 'Module personnalisé FUREX ERP.',
+          description: customForm.description.trim() || 'Module personnalisé JESSI.',
           iconName: 'Layers',
           accentColor: customForm.accentColor || '#FC3F1D',
           active: true,
@@ -185,7 +185,7 @@ export const AppStoreView: React.FC = () => {
           activeId={tab}
           onChange={(id) => setTab(id as 'catalog' | 'custom')}
           tabs={[
-            { id: 'catalog', label: 'Catalogue officiel FUREX', count: MODULE_CATALOG.length },
+            { id: 'catalog', label: 'Catalogue officiel JESSI', count: MODULE_CATALOG.length },
             { id: 'custom', label: 'Modules sur mesure', count: customModules.length },
           ]}
         />
@@ -371,7 +371,7 @@ export const AppStoreView: React.FC = () => {
                       />
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                      {cm.description || 'Module métier personnalisé FUREX ERP.'}
+                      {cm.description || 'Module métier personnalisé JESSI.'}
                     </p>
                   </div>
 
@@ -466,7 +466,7 @@ export const AppStoreView: React.FC = () => {
                 onChange={(e) => setCustomForm({ ...customForm, accentColor: e.target.value })}
                 className={inputCls}
               >
-                <option value="#FC3F1D">Rouge FUREX (#FC3F1D)</option>
+                <option value="#FC3F1D">Rouge JESSI (#FC3F1D)</option>
                 <option value="#111216">Obsidienne (#111216)</option>
                 <option value="#2563EB">Bleu Exécutif (#2563EB)</option>
                 <option value="#059669">Émeraude (#059669)</option>

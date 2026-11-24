@@ -19,7 +19,7 @@ export function exportInvoicePdf(
 ) {
   const doc = new jsPDF();
   const invCurrency = invoice.currency || currency;
-  const sellerName = invoice.sellerName || company?.name || 'FUREX ERP';
+  const sellerName = invoice.sellerName || company?.name || 'JESSI';
   const sellerLegal = invoice.sellerLegalForm || company?.legalForm || '';
   const sellerTaxId = invoice.sellerTaxId || company?.taxId || '';
   const sellerRccm = invoice.sellerRccm || company?.rccm || '';
@@ -27,7 +27,7 @@ export function exportInvoicePdf(
   const sellerPhone = invoice.sellerPhone || company?.phone || '';
   const sellerEmail = invoice.sellerEmail || company?.email || '';
 
-  // Header band (FUREX Obsidian)
+  // Header band (JESSI Obsidian)
   doc.setFillColor(17, 18, 22);
   doc.rect(0, 0, 210, 36, 'F');
   doc.setTextColor(255, 255, 255);
@@ -42,7 +42,7 @@ export function exportInvoicePdf(
       sellerRccm ? `RCCM : ${sellerRccm}` : '',
     ]
       .filter(Boolean)
-      .join('  ·  ') || 'Plateforme de gestion intégrée FUREX ERP',
+      .join('  ·  ') || 'Plateforme de gestion intégrée JESSI',
     14,
     22
   );
@@ -183,7 +183,7 @@ export function exportSingleInvoiceExcel(invoice: Invoice, company: Company | nu
         name: 'Resume Facture',
         rows: [
           {
-            Emetteur: invoice.sellerName || company?.name || 'FUREX ERP',
+            Emetteur: invoice.sellerName || company?.name || 'JESSI',
             NIF_Emetteur: invoice.sellerTaxId || company?.taxId || '',
             RCCM_Emetteur: invoice.sellerRccm || company?.rccm || '',
             NumeroFacture: invoice.number,
@@ -235,7 +235,7 @@ export function exportPurchaseOrderPdf(
   doc.rect(0, 0, 210, 32, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
-  doc.text(company?.name || 'FUREX ERP', 14, 14);
+  doc.text(company?.name || 'JESSI', 14, 14);
   doc.setFontSize(12);
   doc.text(`BON DE COMMANDE FOURNISSEUR · ${po.number}`, 196, 14, { align: 'right' });
   doc.setFontSize(9);
@@ -283,7 +283,7 @@ export function exportSupplierInvoicePdf(
   doc.rect(0, 0, 210, 34, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
-  doc.text(company?.name || 'FUREX ERP', 14, 15);
+  doc.text(company?.name || 'JESSI', 14, 15);
   doc.setFontSize(13);
   doc.text('FACTURE FOURNISSEUR', 196, 15, { align: 'right' });
   doc.setFontSize(11);
@@ -351,7 +351,7 @@ export function exportQuoteOrOrderPdf(
   doc.rect(0, 0, 210, 30, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
-  doc.text(company?.name || 'FUREX ERP', 14, 14);
+  doc.text(company?.name || 'JESSI', 14, 14);
   doc.setFontSize(12);
   doc.text(`${title} · ${docItem.number}`, 196, 14, { align: 'right' });
   doc.setFontSize(9);

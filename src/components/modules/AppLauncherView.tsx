@@ -25,17 +25,20 @@ export const AppLauncherView: React.FC = () => {
     enabledCatalogIds,
     customModules,
     openCatalogModule,
+    openDemoWorkspace,
     setActiveModule,
     setCreateWorkspaceOpen,
     customers,
     products,
     invoices,
     treasuryAccounts,
+    notify,
   } = useErp();
 
   const [search, setSearch] = useState('');
   const [family, setFamily] = useState<'ALL' | ModuleFamily>('ALL');
   const [importOpen, setImportOpen] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
 
   const currency = activeCompany?.currency || 'XAF';
   const totalRevenue = invoices
@@ -75,13 +78,43 @@ export const AppLauncherView: React.FC = () => {
     });
   }, [customModules, family, search]);
 
+  const handleDemoAction = async () => {
+    setDemoBusy(true);
+    try {
+      await openDemoWorkspace(Boolean(activeCompany?.isDemo));
+      notify(
+        activeCompany?.isDemo
+          ? 'Espace Démo JESSI réinitialisé avec les 66+ modules remplis.'
+          : 'Espace Démo JESSI ouvert avec tous les modules remplis.',
+        'success'
+      );
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Impossible d’ouvrir l’espace démo.', 'error');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title={`Applications · ${activeCompany?.name || 'FUREX ERP'}`}
+        title={`Applications · ${activeCompany?.name || 'JESSI'}`}
         subtitle={`Lanceur modulaire (${enabledCatalogIds.length + customModules.filter((c) => c.active).length} applications actives) · Accès direct à vos opérations`}
         actions={
           <>
+            <button
+              type="button"
+              disabled={demoBusy}
+              onClick={handleDemoAction}
+              className={btnSecondaryCls}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#FC3F1D]" />{' '}
+              {demoBusy
+                ? 'Chargement...'
+                : activeCompany?.isDemo
+                ? 'Réinitialiser Démo'
+                : 'Espace Démo (66+)'}
+            </button>
             <button
               type="button"
               onClick={() => setImportOpen(true)}

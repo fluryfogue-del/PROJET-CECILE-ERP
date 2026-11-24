@@ -162,7 +162,7 @@ export const TreasuryView: React.FC = () => {
           })),
         },
       ],
-      `Tresorerie_FUREX_${todayIso()}`
+      `Tresorerie_JESSI_${todayIso()}`
     );
     notify('Classeur Excel Trésorerie téléchargé.', 'success');
   };

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { DbClient, DbPreparedStatement } from './db/types.ts';
 import {
   generateId,
@@ -10,6 +10,7 @@ import {
   verifySignedToken,
   WorkspaceTokenPayload,
 } from './lib/crypto.ts';
+import { seedFullDemoWorkspace } from './demoSeed.ts';
 
 export interface WorkerEnv {
   DB: DbClient;
@@ -709,10 +710,155 @@ function canDelete(member: MemberRow, company: CompanyRow): boolean {
   return isOwnerOrAdmin(member, company) || Boolean(member.can_delete);
 }
 
+const SESSION_COOKIE_NAME = 'jessi_session';
+const DEVICE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const WORKSPACE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function parseCookieValue(cookieHeader: string | undefined, name: string): string {
+  if (!cookieHeader) return '';
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    if (key === name) {
+      const val = part.slice(idx + 1).trim();
+      try {
+        return decodeURIComponent(val);
+      } catch {
+        return val;
+      }
+    }
+  }
+  return '';
+}
+
+function isHttpsRequest(c: Context): boolean {
+  const fwdProto = c.req.header('x-forwarded-proto');
+  if (fwdProto) {
+    const first = fwdProto.split(',')[0].trim().toLowerCase();
+    if (first === 'https') return true;
+  }
+  try {
+    return new URL(c.req.url).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function setSessionCookie(c: Context, token: string, rememberDevice = true) {
+  const secure = isHttpsRequest(c);
+  const attrs = [
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+  ];
+  if (rememberDevice) {
+    attrs.push(`Max-Age=${Math.floor(DEVICE_SESSION_TTL_MS / 1000)}`);
+  }
+  if (secure) {
+    attrs.push('Secure', 'SameSite=None', 'Partitioned');
+  } else {
+    attrs.push('SameSite=Lax');
+  }
+  c.header('Set-Cookie', attrs.join('; '), { append: true });
+}
+
+function clearSessionCookie(c: Context) {
+  const secure = isHttpsRequest(c);
+  const attrs = [
+    `${SESSION_COOKIE_NAME}=`,
+    'Path=/',
+    'HttpOnly',
+    'Max-Age=0',
+  ];
+  if (secure) {
+    attrs.push('Secure', 'SameSite=None', 'Partitioned');
+  } else {
+    attrs.push('SameSite=Lax');
+  }
+  c.header('Set-Cookie', attrs.join('; '), { append: true });
+}
+
+function verifyMutationCsrf(c: Context): boolean {
+  const method = c.req.method.toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    return true;
+  }
+  if (c.req.header('X-Requested-With') === 'XMLHttpRequest') {
+    return true;
+  }
+  const origin = c.req.header('Origin');
+  const host = c.req.header('X-Forwarded-Host') || c.req.header('Host');
+  if (origin && host) {
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function resolveAuthenticatedUser(
+  c: Context<{ Bindings: WorkerEnv; Variables: Variables }>,
+  requireCsrfOnCookieMutation = true
+): Promise<{ user: UserRow; token: string } | null> {
+  const authHeader = c.req.header('Authorization') || '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const cookieToken = parseCookieValue(c.req.header('Cookie'), SESSION_COOKIE_NAME);
+  const token = bearerToken || cookieToken;
+  if (!token) return null;
+
+  if (!bearerToken && cookieToken && requireCsrfOnCookieMutation && !verifyMutationCsrf(c)) {
+    return null;
+  }
+
+  const secret = resolveSessionSecret(c.env.SESSION_SECRET);
+  const payload = await verifySignedToken<SessionTokenPayload>(token, secret, 'user');
+  if (!payload) return null;
+
+  const userRow = await c.env.DB.prepare('SELECT * FROM users WHERE uid = ?').bind(payload.uid).first<UserRow>();
+  if (!userRow) return null;
+  return { user: userRow, token };
+}
+
+async function listUserCompaniesAndTokens(db: DbClient, uid: string, secret: string) {
+  const rows = await db
+    .prepare(
+      `SELECT c.* FROM companies c
+       INNER JOIN company_members cm ON cm.company_id = c.id
+       WHERE cm.uid = ? AND cm.active = 1
+       ORDER BY c.created_at DESC`
+    )
+    .bind(uid)
+    .all<CompanyRow>();
+
+  const workspaceTokens: Record<string, string> = {};
+  const companies = await Promise.all(
+    rows.results.map(async (comp) => {
+      const mUids = await getCompanyMemberUids(db, comp.id);
+      workspaceTokens[comp.id] = await issueSignedToken<WorkspaceTokenPayload>(
+        {
+          kind: 'workspace',
+          uid,
+          companyId: comp.id,
+          iat: Date.now(),
+          exp: Date.now() + WORKSPACE_TOKEN_TTL_MS,
+        },
+        secret
+      );
+      return mapCompanyDto(comp, mUids);
+    })
+  );
+
+  return { companies, workspaceTokens };
+}
+
 export const apiApp = new Hono<{ Bindings: WorkerEnv; Variables: Variables }>();
 
 apiApp.onError((err, c) => {
-  console.error('FUREX API error:', err);
+  console.error('JESSI API error:', err);
   const msg = err instanceof Error ? err.message : 'Erreur interne du serveur';
   return c.json({ error: msg }, 400);
 });
@@ -729,7 +875,7 @@ apiApp.get('/api/health', async (c) => {
   }
   return c.json({
     ok: dbStatus === 'connected',
-    service: 'furex-erp-api',
+    service: 'jessi-api',
     database: dbStatus,
     timestamp: nowIso(),
   });
@@ -746,11 +892,10 @@ apiApp.post('/api/auth/register', async (c) => {
   const email = sanitizeText(body.email, 160).toLowerCase();
   const password = typeof body.password === 'string' ? body.password : '';
   const accountType = body.accountType === 'particulier' ? 'particulier' : 'entreprise';
+  const rememberDevice = body.rememberDevice !== false;
 
   if (lastName.length < 2) return c.json({ error: 'Le nom est obligatoire (minimum 2 caractères).' }, 400);
   if (firstName.length < 2) return c.json({ error: 'Le ou les prénoms sont obligatoires (minimum 2 caractères).' }, 400);
-  if (phone.replace(/\D/g, '').length < 6) return c.json({ error: 'Un numéro de téléphone valide est obligatoire.' }, 400);
-  if (address.length < 4) return c.json({ error: 'L’adresse physique complète est obligatoire.' }, 400);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ error: 'Adresse e-mail invalide.' }, 400);
   if (password.trim().length < 6) {
     return c.json({ error: 'Le mot de passe du compte doit contenir au moins 6 caractères.' }, 400);
@@ -781,17 +926,19 @@ apiApp.post('/api/auth/register', async (c) => {
   if (!userRow) return c.json({ error: 'Erreur lors de la création du profil.' }, 500);
 
   const secret = resolveSessionSecret(c.env.SESSION_SECRET);
+  const ttl = rememberDevice ? DEVICE_SESSION_TTL_MS : 24 * 60 * 60 * 1000;
   const token = await issueSignedToken<SessionTokenPayload>(
     {
       kind: 'user',
       uid,
       email,
       iat: Date.now(),
-      exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      exp: Date.now() + ttl,
     },
     secret
   );
 
+  setSessionCookie(c, token, rememberDevice);
   return c.json({ token, user: mapUserDto(userRow) }, 201);
 });
 
@@ -799,6 +946,7 @@ apiApp.post('/api/auth/login', async (c) => {
   const body = await c.req.json<Record<string, unknown>>().catch((): Record<string, unknown> => ({}));
   const email = sanitizeText(body.email, 160).toLowerCase();
   const password = typeof body.password === 'string' ? body.password : '';
+  const rememberDevice = body.rememberDevice !== false;
 
   if (!email || !password.trim()) {
     return c.json({ error: 'L’adresse e-mail et le mot de passe sont obligatoires.' }, 400);
@@ -816,66 +964,65 @@ apiApp.post('/api/auth/login', async (c) => {
   }
 
   const secret = resolveSessionSecret(c.env.SESSION_SECRET);
+  const ttl = rememberDevice ? DEVICE_SESSION_TTL_MS : 24 * 60 * 60 * 1000;
   const token = await issueSignedToken<SessionTokenPayload>(
     {
       kind: 'user',
       uid: userRow.uid,
       email: userRow.email,
       iat: Date.now(),
-      exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      exp: Date.now() + ttl,
     },
     secret
   );
 
-  return c.json({ token, user: mapUserDto(userRow) });
+  setSessionCookie(c, token, rememberDevice);
+  const { companies, workspaceTokens } = await listUserCompaniesAndTokens(db, userRow.uid, secret);
+  return c.json({ token, user: mapUserDto(userRow), companies, workspaceTokens });
 });
 
-// Middleware: Require authenticated Bearer user session
-apiApp.use('/api/auth/me', async (c, next) => {
-  const authHeader = c.req.header('Authorization') || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+apiApp.get('/api/auth/session', async (c) => {
+  const resolved = await resolveAuthenticatedUser(c, false);
+  if (!resolved) {
+    return c.json({ authenticated: false });
+  }
   const secret = resolveSessionSecret(c.env.SESSION_SECRET);
-  const payload = await verifySignedToken<SessionTokenPayload>(token, secret, 'user');
-  if (!payload) return c.json({ error: 'Session expirée ou non authentifiée.' }, 401);
-  const userRow = await c.env.DB.prepare('SELECT * FROM users WHERE uid = ?').bind(payload.uid).first<UserRow>();
-  if (!userRow) return c.json({ error: 'Utilisateur introuvable.' }, 401);
-  c.set('user', userRow);
-  await next();
+  const { companies, workspaceTokens } = await listUserCompaniesAndTokens(c.env.DB, resolved.user.uid, secret);
+  return c.json({
+    authenticated: true,
+    token: resolved.token,
+    user: mapUserDto(resolved.user),
+    companies,
+    workspaceTokens,
+  });
 });
 
-apiApp.use('/api/auth/profile', async (c, next) => {
-  const authHeader = c.req.header('Authorization') || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const secret = resolveSessionSecret(c.env.SESSION_SECRET);
-  const payload = await verifySignedToken<SessionTokenPayload>(token, secret, 'user');
-  if (!payload) return c.json({ error: 'Session expirée ou non authentifiée.' }, 401);
-  const userRow = await c.env.DB.prepare('SELECT * FROM users WHERE uid = ?').bind(payload.uid).first<UserRow>();
-  if (!userRow) return c.json({ error: 'Utilisateur introuvable.' }, 401);
-  c.set('user', userRow);
+// Middleware: Require authenticated user session (Bearer token or HttpOnly session cookie + CSRF check)
+const requireAuthUser = async (
+  c: Context<{ Bindings: WorkerEnv; Variables: Variables }>,
+  next: () => Promise<void>
+) => {
+  const resolved = await resolveAuthenticatedUser(c, true);
+  if (!resolved) {
+    return c.json({ error: 'Session expirée ou non authentifiée.' }, 401);
+  }
+  c.set('user', resolved.user);
   await next();
-});
+};
 
-apiApp.use('/api/companies', async (c, next) => {
-  const authHeader = c.req.header('Authorization') || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const secret = resolveSessionSecret(c.env.SESSION_SECRET);
-  const payload = await verifySignedToken<SessionTokenPayload>(token, secret, 'user');
-  if (!payload) return c.json({ error: 'Session expirée ou non authentifiée.' }, 401);
-  const userRow = await c.env.DB.prepare('SELECT * FROM users WHERE uid = ?').bind(payload.uid).first<UserRow>();
-  if (!userRow) return c.json({ error: 'Utilisateur introuvable.' }, 401);
-  c.set('user', userRow);
-  await next();
-});
+apiApp.use('/api/auth/me', requireAuthUser);
+apiApp.use('/api/auth/profile', requireAuthUser);
+apiApp.use('/api/companies', requireAuthUser);
+apiApp.use('/api/companies/demo', requireAuthUser);
 
 apiApp.use('/api/companies/:companyId/*', async (c, next) => {
-  const authHeader = c.req.header('Authorization') || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const secret = resolveSessionSecret(c.env.SESSION_SECRET);
-  const payload = await verifySignedToken<SessionTokenPayload>(token, secret, 'user');
-  if (!payload) return c.json({ error: 'Session expirée ou non authentifiée.' }, 401);
-  const userRow = await c.env.DB.prepare('SELECT * FROM users WHERE uid = ?').bind(payload.uid).first<UserRow>();
-  if (!userRow) return c.json({ error: 'Utilisateur introuvable.' }, 401);
-  c.set('user', userRow);
+  if (c.req.path === '/api/companies/demo') {
+    await next();
+    return;
+  }
+  const resolved = await resolveAuthenticatedUser(c, true);
+  if (!resolved) return c.json({ error: 'Session expirée ou non authentifiée.' }, 401);
+  c.set('user', resolved.user);
 
   const companyId = c.req.param('companyId');
   if (!companyId) return c.json({ error: 'Identifiant espace manquant.' }, 400);
@@ -884,7 +1031,7 @@ apiApp.use('/api/companies/:companyId/*', async (c, next) => {
   if (!comp) return c.json({ error: 'Espace de travail introuvable.' }, 404);
   const member = await c.env.DB
     .prepare('SELECT * FROM company_members WHERE company_id = ? AND uid = ? AND active = 1')
-    .bind(companyId, userRow.uid)
+    .bind(companyId, resolved.user.uid)
     .first<MemberRow>();
   if (!member) return c.json({ error: 'Accès refusé à cet espace de travail.' }, 403);
   c.set('company', comp);
@@ -925,7 +1072,10 @@ apiApp.patch('/api/auth/profile', async (c) => {
   return c.json({ user: mapUserDto(updated || user) });
 });
 
-apiApp.post('/api/auth/logout', (c) => c.json({ ok: true }));
+apiApp.post('/api/auth/logout', (c) => {
+  clearSessionCookie(c);
+  return c.json({ ok: true });
+});
 
 // ==================== COMPANIES & WORKSPACE LOCK ROUTES ====================
 
@@ -948,6 +1098,66 @@ apiApp.get('/api/companies', async (c) => {
     })
   );
   return c.json({ companies });
+});
+
+apiApp.post('/api/companies/demo', async (c) => {
+  const user = c.get('user');
+  const body = await c.req.json<Record<string, unknown>>().catch((): Record<string, unknown> => ({}));
+  const forceReset = Boolean(body.reset);
+
+  const existingDemo = await c.env.DB
+    .prepare('SELECT * FROM companies WHERE owner_id = ? AND is_demo = 1 ORDER BY created_at DESC LIMIT 1')
+    .bind(user.uid)
+    .first<CompanyRow>();
+
+  let demoCompanyId = existingDemo?.id || '';
+  if (existingDemo && !forceReset) {
+    const recCount = await c.env.DB
+      .prepare('SELECT COUNT(*) as cnt FROM erp_records WHERE company_id = ?')
+      .bind(existingDemo.id)
+      .first<{ cnt: number }>();
+    if (!recCount || Number(recCount.cnt) < 30) {
+      demoCompanyId = '';
+    }
+  } else if (existingDemo && forceReset) {
+    await c.env.DB.prepare('DELETE FROM companies WHERE id = ?').bind(existingDemo.id).run();
+    demoCompanyId = '';
+  }
+
+  if (!demoCompanyId) {
+    demoCompanyId = await seedFullDemoWorkspace({
+      db: c.env.DB,
+      userUid: user.uid,
+      userEmail: user.email,
+      userDisplayName: user.display_name,
+      userFirstName: user.first_name,
+      userLastName: user.last_name,
+      userPhone: user.phone,
+      userAddress: user.address,
+    });
+  }
+
+  const demoRow = await c.env.DB.prepare('SELECT * FROM companies WHERE id = ?').bind(demoCompanyId).first<CompanyRow>();
+  const mUids = await getCompanyMemberUids(c.env.DB, demoCompanyId);
+  const secret = resolveSessionSecret(c.env.SESSION_SECRET);
+  const workspaceToken = await issueSignedToken<WorkspaceTokenPayload>(
+    {
+      kind: 'workspace',
+      uid: user.uid,
+      companyId: demoCompanyId,
+      iat: Date.now(),
+      exp: Date.now() + WORKSPACE_TOKEN_TTL_MS,
+    },
+    secret
+  );
+
+  return c.json(
+    {
+      company: demoRow ? mapCompanyDto(demoRow, mUids) : null,
+      workspaceToken,
+    },
+    existingDemo && !forceReset ? 200 : 201
+  );
 });
 
 apiApp.post('/api/companies', async (c) => {
@@ -975,11 +1185,18 @@ apiApp.post('/api/companies', async (c) => {
     : ['mod_dashboard'];
 
   if (name.length < 2) return c.json({ error: 'Le nom de l’espace est obligatoire.' }, 400);
-  if (rawPassword.trim().length < 4) {
-    return c.json({ error: 'Le mot de passe de l’espace doit contenir au moins 4 caractères non vides.' }, 400);
+
+  let salt = '';
+  let hash = '';
+  if (rawPassword.trim().length > 0) {
+    if (rawPassword.trim().length < 4) {
+      return c.json({ error: 'Le code de verrouillage doit contenir au moins 4 caractères.' }, 400);
+    }
+    const hashed = await hashSecret(rawPassword, 4);
+    salt = hashed.salt;
+    hash = hashed.hash;
   }
 
-  const { salt, hash } = await hashSecret(rawPassword, 4);
   const companyId = generateId();
   const ts = nowIso();
   const displayName = `${ownerFirstName} ${ownerLastName}`.trim() || user.display_name;
@@ -1028,7 +1245,7 @@ apiApp.post('/api/companies', async (c) => {
           allowed_modules_json, can_write, can_validate, can_delete, active, owner_id, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, 'admin', 'Direction Générale', ?, 1, 1, 1, 1, ?, ?, ?)`
       )
-      .bind(user.uid, companyId, user.uid, email, displayName, JSON.stringify(ALL_MODULES), user.uid, ts, ts)
+      .bind(generateId(), companyId, user.uid, email, displayName, JSON.stringify(ALL_MODULES), user.uid, ts, ts)
   );
 
   stmts.push(
@@ -1164,7 +1381,7 @@ apiApp.post('/api/companies', async (c) => {
       uid: user.uid,
       companyId,
       iat: Date.now(),
-      exp: Date.now() + 24 * 60 * 60 * 1000,
+      exp: Date.now() + WORKSPACE_TOKEN_TTL_MS,
     },
     secret
   );
@@ -1193,11 +1410,14 @@ apiApp.post('/api/companies/:companyId/unlock', async (c) => {
   if (!password.trim()) {
     return c.json({ error: 'Le mot de passe est obligatoire. Les champs vides sont refusés.' }, 400);
   }
-  if (!company.password_hash || !company.password_salt) {
-    return c.json({ error: 'Mot de passe de sécurité non encore initialisé.' }, 400);
+
+  let valid = false;
+  if (company.password_hash && company.password_salt) {
+    valid = await verifySecret(password, company.password_salt, company.password_hash);
+  } else {
+    valid = await verifySecret(password, user.password_salt, user.password_hash);
   }
 
-  const valid = await verifySecret(password, company.password_salt, company.password_hash);
   if (!valid) {
     return c.json({ error: 'Mot de passe incorrect. Accès refusé.' }, 401);
   }
@@ -1209,7 +1429,7 @@ apiApp.post('/api/companies/:companyId/unlock', async (c) => {
       uid: user.uid,
       companyId: company.id,
       iat: Date.now(),
-      exp: Date.now() + 24 * 60 * 60 * 1000,
+      exp: Date.now() + WORKSPACE_TOKEN_TTL_MS,
     },
     secret
   );
@@ -1442,7 +1662,7 @@ apiApp.post('/api/companies/:companyId/members', async (c) => {
   const targetUser = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first<UserRow>();
   if (!targetUser) {
     return c.json(
-      { error: 'Aucun compte FUREX ERP inscrit avec cet e-mail. Le collaborateur doit créer son compte d’abord.' },
+      { error: 'Aucun compte JESSI inscrit avec cet e-mail. Le collaborateur doit créer son compte d’abord.' },
       404
     );
   }
@@ -1485,7 +1705,7 @@ apiApp.post('/api/companies/:companyId/members', async (c) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
       )
       .bind(
-        targetUser.uid,
+        generateId(),
         company.id,
         targetUser.uid,
         targetUser.email,

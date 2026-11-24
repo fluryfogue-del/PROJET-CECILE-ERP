@@ -46,7 +46,7 @@ export const DashboardView: React.FC = () => {
 
   const currency = activeCompany?.currency || 'XAF';
 
-  // Real calculated KPIs from live Firestore data
+  // Real calculated KPIs from live SQL database
   const kpis = useMemo(() => {
     const validInvoices = invoices.filter((i) => i.status !== 'annulee');
     const totalRevenue = validInvoices.reduce((s, i) => s + (i.total || 0), 0);

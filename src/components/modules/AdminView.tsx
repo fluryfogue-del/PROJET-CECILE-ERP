@@ -636,7 +636,7 @@ export const AdminView: React.FC = () => {
       <Modal open={memberModal} title="Ajouter un membre à l’espace" onClose={() => setMemberModal(false)} maxWidth="max-w-md">
         <form onSubmit={handleAddMember} className="space-y-4">
           <div>
-            <label className={labelCls}>Adresse e-mail du compte FUREX ERP *</label>
+            <label className={labelCls}>Adresse e-mail du compte JESSI *</label>
             <input type="email" required className={inputCls} value={memberForm.email} onChange={(e) => setMemberForm({ ...memberForm, email: e.target.value })} placeholder="collaborateur@entreprise.com" />
           </div>
           <div>

@@ -39,6 +39,7 @@ export const AuthScreen: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [rememberDevice, setRememberDevice] = useState(true);
   const [showPwd, setShowPwd] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -89,12 +90,13 @@ export const AuthScreen: React.FC = () => {
         email: email.trim(),
         password,
         accountType: pendingAccountType,
+        rememberDevice,
       });
       if (!res.ok) {
         setFormError(res.error || 'Impossible de créer le compte.');
         return;
       }
-      notify('Compte créé et session sécurisée ouverte.', 'success');
+      notify('Compte JESSI créé et session ouverte.', 'success');
     } finally {
       setBusy(false);
     }
@@ -115,7 +117,7 @@ export const AuthScreen: React.FC = () => {
 
     setBusy(true);
     try {
-      const res = await loginWithCredentials(email.trim(), password);
+      const res = await loginWithCredentials(email.trim(), password, rememberDevice);
       if (!res.ok) {
         setFormError(res.error || 'Identifiants incorrects.');
         return;
@@ -131,11 +133,13 @@ export const AuthScreen: React.FC = () => {
       {/* Clean Header */}
       <header className="w-full border-b border-[#E6E8EC] dark:border-[#262933] bg-white dark:bg-[#16181F] px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
-          <div className="w-9 h-9 rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm tracking-tight">
-            FX
-          </div>
+          <img
+            src="/assets/aistudio/image_2c55d81b.png"
+            alt="JESSI"
+            className="w-9 h-9 rounded-xl object-cover border border-[#E6E8EC] dark:border-[#262933]"
+          />
           <span className="font-display font-extrabold text-lg tracking-tight text-[#111216] dark:text-white">
-            FUREX ERP
+            JESSI
           </span>
         </div>
 
@@ -168,13 +172,13 @@ export const AuthScreen: React.FC = () => {
         <div className="lg:col-span-6 space-y-6">
           <div className="space-y-3">
             <p className="text-xs font-bold uppercase tracking-wider text-[#FC3F1D]">
-              Plateforme ERP Modulaire · Entreprise & Particulier
+              Plateforme Modulaire · Entreprise & Particulier
             </p>
             <h1 className="font-display text-3xl sm:text-5xl font-extrabold tracking-tight text-[#111216] dark:text-white leading-[1.1] text-balance">
               Pilotez vos activités dans un espace privé et persistant.
             </h1>
             <p className="text-base text-slate-600 dark:text-slate-300 leading-relaxed max-w-xl">
-              Créez votre compte sécurisé, sélectionnez votre profil Entreprise ou Particulier, composez votre suite parmi plus de 66 modules et enregistrez toutes vos opérations en base de données.
+              Créez votre compte JESSI en quelques secondes, démarrez sur un espace vierge avec vos propres données ou explorez la démonstration complète à 66+ modules.
             </p>
           </div>
 
@@ -188,9 +192,9 @@ export const AuthScreen: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
               <Lock className="w-4 h-4 text-[#FC3F1D]" />
-              <p className="text-xs font-bold text-[#111216] dark:text-white">Accès par mot de passe</p>
+              <p className="text-xs font-bold text-[#111216] dark:text-white">Connexion simplifiée</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Authentification serveur et verrouillage chiffré de chaque espace de travail.
+                Une seule identification mémorisée sur votre appareil, sans double ressaisie.
               </p>
             </div>
             <div className="bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-4 space-y-1.5">
@@ -337,17 +341,6 @@ export const AuthScreen: React.FC = () => {
 
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Numéro de téléphone *</label>
-                  <input
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+237 699 00 00 00"
-                    className={inputCls}
-                  />
-                </div>
-                <div>
                   <label className={labelCls}>Adresse e-mail *</label>
                   <input
                     type="email"
@@ -358,13 +351,22 @@ export const AuthScreen: React.FC = () => {
                     className={inputCls}
                   />
                 </div>
+                <div>
+                  <label className={labelCls}>Téléphone (optionnel)</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+237 699 00 00 00"
+                    className={inputCls}
+                  />
+                </div>
               </div>
 
               <div>
-                <label className={labelCls}>Adresse complète *</label>
+                <label className={labelCls}>Adresse (optionnel)</label>
                 <input
                   type="text"
-                  required
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="Quartier, Rue, Ville"
@@ -407,6 +409,16 @@ export const AuthScreen: React.FC = () => {
                 </div>
               </div>
 
+              <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={rememberDevice}
+                  onChange={(e) => setRememberDevice(e.target.checked)}
+                  className="rounded border-slate-300 text-[#FC3F1D] focus:ring-[#FC3F1D]"
+                />
+                <span>Rester connecté automatiquement sur cet appareil</span>
+              </label>
+
               <button
                 type="submit"
                 disabled={busy}
@@ -419,14 +431,11 @@ export const AuthScreen: React.FC = () => {
                 </span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center">
-                Tous les champs marqués (*) sont obligatoires. Les saisies vides sont refusées.
-              </p>
             </form>
           ) : (
             <form onSubmit={handleLoginSubmit} noValidate className="space-y-4 py-1">
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                Connectez-vous à votre compte FUREX ERP. Le mot de passe propre à votre espace de travail vous sera ensuite demandé avant l’affichage des données et métriques.
+                Connectez-vous à votre compte JESSI pour retrouver instantanément tous vos espaces et données.
               </p>
 
               <div>
@@ -463,6 +472,16 @@ export const AuthScreen: React.FC = () => {
                 </div>
               </div>
 
+              <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberDevice}
+                  onChange={(e) => setRememberDevice(e.target.checked)}
+                  className="rounded border-slate-300 text-[#FC3F1D] focus:ring-[#FC3F1D]"
+                />
+                <span>Rester connecté automatiquement sur cet appareil</span>
+              </label>
+
               <button
                 type="submit"
                 disabled={busy}
@@ -479,7 +498,7 @@ export const AuthScreen: React.FC = () => {
       {/* Clean Footer */}
       <footer className="border-t border-[#E6E8EC] dark:border-[#262933] bg-white dark:bg-[#16181F] px-4 sm:px-8 py-4 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-4">
         <span className="font-semibold text-[#111216] dark:text-slate-200">
-          FUREX ERP · Progiciel de Gestion Intégré
+          JESSI · Progiciel de Gestion Intégré
         </span>
         <span>Entreprise & Particulier · Base persistante & Cloudflare Workers</span>
       </footer>

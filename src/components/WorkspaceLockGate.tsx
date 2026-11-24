@@ -7,12 +7,10 @@ import {
   Plus,
   LogOut,
   AlertCircle,
-  ShieldCheck,
   Building2,
   User,
 } from 'lucide-react';
 import { useErp } from '../contexts/ErpContext';
-import { validateWorkspacePasswordPair } from '../lib/security';
 import { inputCls, labelCls } from './ui/DataUI';
 
 export const WorkspaceLockGate: React.FC = () => {
@@ -23,31 +21,29 @@ export const WorkspaceLockGate: React.FC = () => {
     activeCompany,
     setActiveCompanyId,
     unlockWorkspace,
-    initializeLegacyWorkspacePassword,
     setCreateWorkspaceOpen,
     logout,
     notify,
   } = useErp();
 
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (!activeCompany) return null;
 
-  const needsPasswordSetup =
+  const hasCustomPin =
     activeCompany.hasPassword !== undefined
-      ? !activeCompany.hasPassword
-      : !activeCompany.passwordHash || !activeCompany.passwordSalt;
+      ? activeCompany.hasPassword
+      : Boolean(activeCompany.passwordHash && activeCompany.passwordSalt);
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (!password || password.trim().length === 0) {
-      setError('Le mot de passe est obligatoire. Les champs vides ne sont pas acceptés.');
+      setError('Veuillez saisir votre mot de passe.');
       return;
     }
 
@@ -65,29 +61,6 @@ export const WorkspaceLockGate: React.FC = () => {
     }
   };
 
-  const handleSetupPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    const validationError = validateWorkspacePasswordPair(password, confirmPassword);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await initializeLegacyWorkspacePassword(activeCompany.id, password);
-      setPassword('');
-      setConfirmPassword('');
-      notify('Mot de passe de sécurité défini. Accès à l’espace autorisé.', 'success');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Impossible d’enregistrer le mot de passe.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const displayUser =
     profile?.firstName || profile?.lastName
       ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim()
@@ -97,11 +70,13 @@ export const WorkspaceLockGate: React.FC = () => {
     <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0D0E12] text-[#111216] dark:text-slate-100 flex flex-col justify-between">
       <header className="w-full border-b border-[#E6E8EC] dark:border-[#262933] bg-white dark:bg-[#16181F] px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-sm">
-            FX
-          </div>
+          <img
+            src="/assets/aistudio/image_2c55d81b.png"
+            alt="JESSI"
+            className="w-9 h-9 rounded-xl object-cover border border-[#E6E8EC] dark:border-[#262933]"
+          />
           <span className="font-display font-extrabold text-lg tracking-tight text-[#111216] dark:text-white">
-            FUREX ERP
+            JESSI
           </span>
         </div>
 
@@ -129,34 +104,33 @@ export const WorkspaceLockGate: React.FC = () => {
         <div className="w-full max-w-md bg-white dark:bg-[#16181F] border border-[#E6E8EC] dark:border-[#262933] rounded-2xl p-6 sm:p-8 space-y-6">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-[#FC3F1D]/10 text-[#FC3F1D] flex items-center justify-center shrink-0">
-              {needsPasswordSetup ? <ShieldCheck className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+              <Lock className="w-5 h-5" />
             </div>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wider text-[#FC3F1D]">
-                Accès protégé
+                Écran verrouillé
               </p>
               <h1 className="font-display text-lg font-extrabold text-[#111216] dark:text-white">
-                {needsPasswordSetup
-                  ? 'Sécuriser votre espace de travail'
-                  : 'Déverrouiller votre espace de travail'}
+                Déverrouiller votre espace
               </h1>
             </div>
           </div>
 
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            Connecté en tant que <strong className="text-[#111216] dark:text-white">{displayUser}</strong>.
-            Les métriques, finances, stocks et clients sont accessibles uniquement après saisie du mot de passe de l’espace.
+            Connecté en tant que <strong className="text-[#111216] dark:text-white">{displayUser}</strong>.{' '}
+            {hasCustomPin
+              ? 'Saisissez le code de verrouillage de cet espace pour reprendre votre travail.'
+              : 'Saisissez le mot de passe de votre compte JESSI pour reprendre votre travail.'}
           </p>
 
           {companies.length > 1 && (
             <div>
-              <label className={labelCls}>Espace de travail à ouvrir</label>
+              <label className={labelCls}>Espace de travail</label>
               <select
                 value={activeCompany.id}
                 onChange={(e) => {
                   setActiveCompanyId(e.target.value);
                   setPassword('');
-                  setConfirmPassword('');
                   setError(null);
                 }}
                 className={inputCls}
@@ -188,91 +162,46 @@ export const WorkspaceLockGate: React.FC = () => {
             </div>
           )}
 
-          {needsPasswordSetup ? (
-            <form onSubmit={handleSetupPassword} noValidate className="space-y-4">
-              <div>
-                <label className={labelCls}>Définir un mot de passe d’espace *</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Minimum 4 caractères"
-                    className={`${inputCls} pr-10`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((p) => !p)}
-                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
-                    aria-label="Afficher le mot de passe"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className={labelCls}>Confirmer le mot de passe *</label>
+          <form onSubmit={handleUnlock} noValidate className="space-y-4">
+            <div>
+              <label className={labelCls}>
+                {hasCustomPin ? 'Code de l’espace *' : 'Mot de passe de votre compte *'}
+              </label>
+              <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  autoFocus
                   required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Répétez le mot de passe"
-                  className={inputCls}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Saisissez votre mot de passe"
+                  className={`${inputCls} pr-10`}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((p) => !p)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                  aria-label="Afficher le mot de passe"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-[#FC3F1D] hover:bg-[#E03212] disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                <span>{busy ? 'Sécurisation...' : 'Enregistrer et accéder aux métriques'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleUnlock} noValidate className="space-y-4">
-              <div>
-                <label className={labelCls}>Mot de passe de l’espace de travail *</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    autoFocus
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Saisissez votre mot de passe"
-                    className={`${inputCls} pr-10`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((p) => !p)}
-                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
-                    aria-label="Afficher le mot de passe"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-[#FC3F1D] hover:bg-[#E03212] disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                <span>{busy ? 'Vérification...' : 'Accéder à l’espace de travail'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </form>
-          )}
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-[#FC3F1D] hover:bg-[#E03212] disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors cursor-pointer"
+            >
+              <span>{busy ? 'Vérification...' : 'Reprendre la session'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </form>
         </div>
       </main>
 
       <footer className="border-t border-[#E6E8EC] dark:border-[#262933] bg-white dark:bg-[#16181F] px-4 sm:px-8 py-4 text-xs text-slate-500 dark:text-slate-400 text-center">
-        FUREX ERP · Protection des données et métriques par mot de passe d’espace
+        JESSI · Session chiffrée et protection de vos données
       </footer>
     </div>
   );

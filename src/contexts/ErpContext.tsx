@@ -4,10 +4,12 @@ import {
   clearAllWorkspaceTokens,
   getSessionToken,
   getWorkspaceToken,
+  setMultipleWorkspaceTokens,
   setSessionToken,
   setWorkspaceToken,
   subscribeDataMutation,
 } from '../lib/apiClient';
+import { createOrOpenDemoWorkspace } from '../services/erpEngine';
 import { getTranslations, LanguageCode } from '../i18n/translations';
 import { getCatalogModule, MODULE_CATALOG } from '../catalog/moduleCatalog';
 import {
@@ -62,11 +64,12 @@ export interface PendingPersonalInfo {
 export interface RegisterPayload {
   firstName: string;
   lastName: string;
-  phone: string;
-  address: string;
+  phone?: string;
+  address?: string;
   email: string;
   password: string;
   accountType: AccountType;
+  rememberDevice?: boolean;
 }
 
 interface WorkspaceBundleResponse {
@@ -113,7 +116,11 @@ interface ErpContextValue {
   pendingPersonalInfo: PendingPersonalInfo;
   setPendingPersonalInfo: (info: PendingPersonalInfo) => void;
   updateUserAccountType: (type: AccountType) => Promise<void>;
-  loginWithCredentials: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  loginWithCredentials: (
+    email: string,
+    password: string,
+    rememberDevice?: boolean
+  ) => Promise<{ ok: boolean; error?: string }>;
   registerAccount: (payload: RegisterPayload) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
 
@@ -122,6 +129,7 @@ interface ErpContextValue {
   setActiveCompanyId: (id: string) => void;
   refreshCompanies: () => Promise<void>;
   refreshWorkspaceData: (companyId?: string) => Promise<void>;
+  openDemoWorkspace: (reset?: boolean) => Promise<void>;
   isWorkspaceUnlocked: boolean;
   unlockedCompanyIds: string[];
   markWorkspaceUnlocked: (companyId: string) => void;
@@ -194,7 +202,7 @@ const EMPTY_PERSONAL: PendingPersonalInfo = {
 export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [authReady, setAuthReady] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
   const [companiesLoaded, setCompaniesLoaded] = useState(false);
 
   const [pendingAccountType, setPendingAccountType] = useState<AccountType>('entreprise');
@@ -378,6 +386,65 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [activeCompanyId]
   );
 
+  // Restore persistent device session from HttpOnly cookie on boot
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiRequest<{
+          authenticated: boolean;
+          token?: string;
+          user?: UserProfile;
+          companies?: Company[];
+          workspaceTokens?: Record<string, string>;
+        }>('/api/auth/session');
+
+        if (cancelled) return;
+        if (res.authenticated && res.user) {
+          setSessionToken(res.token || 'cookie-session');
+          setUser(res.user);
+          setProfile(res.user);
+          setPendingAccountType(res.user.accountType || 'entreprise');
+          setPendingPersonalInfo({
+            firstName: res.user.firstName || '',
+            lastName: res.user.lastName || '',
+            phone: res.user.phone || '',
+            address: res.user.address || '',
+          });
+          if (res.user.language === 'en' || res.user.language === 'fr') {
+            setLanguageState(res.user.language);
+          }
+
+          const tokenMap = res.workspaceTokens || {};
+          setMultipleWorkspaceTokens(tokenMap);
+          setUnlockedCompanyIds(Object.keys(tokenMap));
+
+          const list = res.companies || [];
+          setCompanies(list);
+          if (list.length > 0) {
+            const defaultId =
+              res.user.defaultCompanyId && list.some((c) => c.id === res.user?.defaultCompanyId)
+                ? res.user.defaultCompanyId
+                : list[0].id;
+            setActiveCompanyId(defaultId);
+          } else {
+            setActiveCompanyId('');
+          }
+          setCompaniesLoaded(true);
+        }
+      } catch {
+        // Not logged in yet
+      } finally {
+        if (!cancelled) {
+          setAuthReady(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Sync after every API mutation
   useEffect(() => {
     const unsub = subscribeDataMutation((mutatedCompanyId) => {
@@ -390,11 +457,20 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeCompanyId, refreshCompanies, refreshWorkspaceData]);
 
   const loginWithCredentials = useCallback(
-    async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+    async (
+      email: string,
+      password: string,
+      rememberDevice = true
+    ): Promise<{ ok: boolean; error?: string }> => {
       try {
-        const res = await apiRequest<{ token: string; user: UserProfile }>('/api/auth/login', {
+        const res = await apiRequest<{
+          token: string;
+          user: UserProfile;
+          companies?: Company[];
+          workspaceTokens?: Record<string, string>;
+        }>('/api/auth/login', {
           method: 'POST',
-          body: { email: email.trim(), password },
+          body: { email: email.trim(), password, rememberDevice },
         });
         setSessionToken(res.token);
         setUser(res.user);
@@ -409,9 +485,12 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (res.user.language === 'en' || res.user.language === 'fr') {
           setLanguageState(res.user.language);
         }
-        setCompaniesLoaded(false);
-        const compRes = await apiRequest<{ companies: Company[] }>('/api/companies');
-        const list = compRes.companies || [];
+
+        const tokenMap = res.workspaceTokens || {};
+        setMultipleWorkspaceTokens(tokenMap);
+        setUnlockedCompanyIds(Object.keys(tokenMap));
+
+        const list = res.companies || (await apiRequest<{ companies: Company[] }>('/api/companies')).companies || [];
         setCompanies(list);
         if (list.length > 0) {
           const defaultId =
@@ -438,7 +517,12 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const res = await apiRequest<{ token: string; user: UserProfile }>('/api/auth/register', {
           method: 'POST',
-          body: payload,
+          body: {
+            ...payload,
+            phone: (payload.phone || '').trim(),
+            address: (payload.address || '').trim(),
+            rememberDevice: payload.rememberDevice !== false,
+          },
         });
         setSessionToken(res.token);
         setUser(res.user);
@@ -447,11 +531,12 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPendingPersonalInfo({
           firstName: payload.firstName.trim(),
           lastName: payload.lastName.trim(),
-          phone: payload.phone.trim(),
-          address: payload.address.trim(),
+          phone: (payload.phone || '').trim(),
+          address: (payload.address || '').trim(),
         });
         setCompanies([]);
         setActiveCompanyId('');
+        setUnlockedCompanyIds([]);
         setCompaniesLoaded(true);
         setAuthReady(true);
         return { ok: true };
@@ -461,6 +546,19 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     },
     []
+  );
+
+  const openDemoWorkspace = useCallback(
+    async (reset = false) => {
+      const { companyId } = await createOrOpenDemoWorkspace(reset);
+      await refreshCompanies();
+      setUnlockedCompanyIds((prev) => (prev.includes(companyId) ? prev : [...prev, companyId]));
+      setActiveCompanyId(companyId);
+      setCreateWorkspaceOpen(false);
+      setActiveModule('launcher');
+      await refreshWorkspaceData(companyId);
+    },
+    [refreshCompanies, refreshWorkspaceData]
   );
 
   const updateUserAccountType = useCallback(async (type: AccountType) => {
@@ -634,6 +732,7 @@ export const ErpProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveCompanyId,
         refreshCompanies,
         refreshWorkspaceData,
+        openDemoWorkspace,
         isWorkspaceUnlocked,
         unlockedCompanyIds,
         markWorkspaceUnlocked,

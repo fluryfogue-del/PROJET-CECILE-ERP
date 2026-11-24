@@ -436,7 +436,7 @@ export const PurchasesView: React.FC = () => {
           })),
         },
       ],
-      `Achats_FUREX_${todayIso()}`
+      `Achats_JESSI_${todayIso()}`
     );
     notify('Classeur Excel Achats téléchargé.', 'success');
   };

@@ -1,5 +1,5 @@
-// In-memory authenticated HTTP client for FUREX ERP REST API (Node Express / Cloudflare Workers)
-// Tokens are kept strictly in JavaScript memory (never in localStorage or sessionStorage).
+// In-memory & HttpOnly cookie authenticated HTTP client for JESSI REST API (Node Express / Cloudflare Workers)
+// Session tokens stay in HttpOnly cookies and JavaScript memory (never in localStorage or sessionStorage).
 
 let sessionToken: string | null = null;
 const workspaceTokens = new Map<string, string>();
@@ -22,6 +22,15 @@ export function setWorkspaceToken(companyId: string, token: string | null) {
   } else {
     workspaceTokens.set(companyId, token);
   }
+}
+
+export function setMultipleWorkspaceTokens(map: Record<string, string> | undefined | null) {
+  if (!map) return;
+  Object.entries(map).forEach(([companyId, token]) => {
+    if (companyId && token) {
+      workspaceTokens.set(companyId, token);
+    }
+  });
 }
 
 export function getWorkspaceToken(companyId: string): string | null {
@@ -62,11 +71,13 @@ export async function apiRequest<T>(
     emitMutation?: boolean;
   } = {}
 ): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    'X-Requested-With': 'XMLHttpRequest',
+  };
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
-  if (sessionToken) {
+  if (sessionToken && sessionToken !== 'cookie-session') {
     headers['Authorization'] = `Bearer ${sessionToken}`;
   }
   if (options.companyId) {
@@ -80,6 +91,7 @@ export async function apiRequest<T>(
   const response = await fetch(targetUrl, {
     method: options.method || 'GET',
     headers,
+    credentials: 'include',
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
 

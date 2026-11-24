@@ -125,7 +125,7 @@ export const ImportSpreadsheetModal: React.FC<ImportSpreadsheetModalProps> = ({
       notify(`${count} enregistrement(s) importé(s) dans ${moduleLabel || meta.label}.`, 'success');
       onClose();
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Erreur lors de l’importation Firestore.', 'error');
+      notify(err instanceof Error ? err.message : 'Erreur lors de l’importation en base de données.', 'error');
     } finally {
       setImporting(false);
     }

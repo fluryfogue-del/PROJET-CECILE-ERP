@@ -44,7 +44,7 @@ export const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
   if (!invoice) return null;
 
   const invCurrency = invoice.currency || currency;
-  const sellerName = invoice.sellerName || company?.name || 'FUREX ERP';
+  const sellerName = invoice.sellerName || company?.name || 'JESSI';
   const sellerLegal = invoice.sellerLegalForm || company?.legalForm || '';
   const sellerTaxId = invoice.sellerTaxId || company?.taxId || '';
   const sellerRccm = invoice.sellerRccm || company?.rccm || '';
@@ -162,15 +162,17 @@ export const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
           <div className="bg-[#111216] text-white rounded-xl p-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[#FC3F1D] text-white flex items-center justify-center font-display font-extrabold text-xs">
-                  FX
-                </div>
+                <img
+                  src="/assets/aistudio/image_2c55d81b.png"
+                  alt="JESSI"
+                  className="w-8 h-8 rounded-lg object-cover border border-white/15"
+                />
                 <h2 className="font-display text-xl font-extrabold tracking-tight">{sellerName}</h2>
               </div>
               <p className="text-xs text-slate-300">
                 {[sellerLegal, sellerTaxId && `NIF : ${sellerTaxId}`, sellerRccm && `RCCM : ${sellerRccm}`]
                   .filter(Boolean)
-                  .join(' · ') || 'Émetteur FUREX ERP'}
+                  .join(' · ') || 'Émetteur JESSI'}
               </p>
               {(sellerAddress || sellerPhone || sellerEmail) && (
                 <p className="text-[11px] text-slate-400">

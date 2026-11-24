@@ -2,7 +2,7 @@ export type LanguageCode = 'fr' | 'en';
 
 export const TRANSLATIONS = {
   fr: {
-    brand: 'FUREX ERP',
+    brand: 'JESSI',
     slogan: 'Connecter, piloter et accélérer',
     nav: {
       launcher: 'Applications',
@@ -40,7 +40,7 @@ export const TRANSLATIONS = {
     },
   },
   en: {
-    brand: 'FUREX ERP',
+    brand: 'JESSI',
     slogan: 'Connect, manage and accelerate',
     nav: {
       launcher: 'App Launcher',

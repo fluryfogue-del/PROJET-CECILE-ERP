@@ -36,7 +36,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
           <div className="max-w-lg w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 space-y-4">
             <div className="flex items-center gap-3 text-[#FC3F1D]">
               <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h2 className="text-lg font-semibold">Interruption de session FUREX ERP</h2>
+              <h2 className="text-lg font-semibold">Interruption de session JESSI</h2>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed break-words">
               {friendlyMsg}

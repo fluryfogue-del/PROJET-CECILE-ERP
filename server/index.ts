@@ -46,9 +46,10 @@ function withCorsHeaders(response: Response, allowedOrigin: string | null): Resp
   if (!allowedOrigin) return response;
   const headers = new Headers(response.headers);
   headers.set('Access-Control-Allow-Origin', allowedOrigin);
+  headers.set('Access-Control-Allow-Credentials', 'true');
   headers.set('Vary', 'Origin');
   headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Workspace-Token');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Workspace-Token, X-Requested-With');
   headers.set('Access-Control-Max-Age', '86400');
   return new Response(response.body, {
     status: response.status,
@@ -106,7 +107,7 @@ export default {
         new Response(
           JSON.stringify({
             ok: true,
-            service: 'furex-erp-api',
+            service: 'jessi-api',
             runtime: 'cloudflare-worker',
             databaseBound: Boolean(resolveD1Binding(env)),
           }),

@@ -100,7 +100,7 @@ export const MODULE_CATALOG: CatalogModule[] = [
   {
     id: 'mod_docs_guide',
     name: 'Référentiel Procédures',
-    shortDesc: 'Manuel opérationnel et documentation d’architecture FUREX.',
+    shortDesc: 'Manuel opérationnel et documentation d’architecture JESSI.',
     family: 'Pilotage & Direction',
     targetModule: 'docs',
     color: '#475569',

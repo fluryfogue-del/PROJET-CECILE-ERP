@@ -1,4 +1,4 @@
-// Cryptographic password hashing & strict non-empty input validation for FUREX ERP
+// Cryptographic password hashing & input validation for JESSI
 
 function toHex(buffer: ArrayBuffer | Uint8Array): string {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
@@ -82,8 +82,8 @@ export function isNonEmptyText(val: string | undefined | null, minLen = 1): bool
 export function validatePersonalDetails(input: {
   lastName: string;
   firstName: string;
-  phone: string;
-  address: string;
+  phone?: string;
+  address?: string;
 }): string | null {
   if (!isNonEmptyText(input.lastName, 2)) {
     return 'Le nom est obligatoire (minimum 2 caractères).';
@@ -91,12 +91,14 @@ export function validatePersonalDetails(input: {
   if (!isNonEmptyText(input.firstName, 2)) {
     return 'Le ou les prénoms sont obligatoires (minimum 2 caractères).';
   }
-  const digits = (input.phone || '').replace(/\D/g, '');
-  if (!isNonEmptyText(input.phone, 6) || digits.length < 6) {
-    return 'Un numéro de téléphone valide est obligatoire.';
+  if (input.phone && input.phone.trim().length > 0) {
+    const digits = input.phone.replace(/\D/g, '');
+    if (digits.length < 6) {
+      return 'Le numéro de téléphone saisi semble incomplet.';
+    }
   }
-  if (!isNonEmptyText(input.address, 4)) {
-    return 'L’adresse physique complète est obligatoire.';
+  if (input.address && input.address.trim().length > 0 && input.address.trim().length < 3) {
+    return 'L’adresse saisie est trop courte.';
   }
   return null;
 }

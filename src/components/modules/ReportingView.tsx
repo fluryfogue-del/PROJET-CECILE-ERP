@@ -109,7 +109,7 @@ export const ReportingView: React.FC = () => {
           })),
         },
       ],
-      `Reporting_FUREX_${todayIso()}`
+      `Reporting_JESSI_${todayIso()}`
     );
   };
 
@@ -128,7 +128,7 @@ export const ReportingView: React.FC = () => {
         ['Articles sous seuil', String(metrics.lowStock)],
         ['Opportunités gagnées', `${metrics.wonOpps} / ${metrics.totalOpps}`],
       ],
-      `Rapport_FUREX_${todayIso()}`
+      `Rapport_JESSI_${todayIso()}`
     );
   };
 
@@ -144,7 +144,7 @@ export const ReportingView: React.FC = () => {
         { Indicateur: 'Articles sous seuil', Valeur: metrics.lowStock, Devise: 'Unites' },
         { Indicateur: 'Opportunites gagnees', Valeur: metrics.wonOpps, Devise: `/${metrics.totalOpps}` },
       ],
-      `Reporting_FUREX_${todayIso()}`
+      `Reporting_JESSI_${todayIso()}`
     );
   };
 

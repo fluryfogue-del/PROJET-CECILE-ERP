@@ -218,7 +218,7 @@ export const DynamicModuleView: React.FC = () => {
         formatMoney(r.amount || 0, currency),
         STATUS_LABELS[r.status],
       ]),
-      `FUREX_${moduleMeta.id}_${todayIso()}`
+      `JESSI_${moduleMeta.id}_${todayIso()}`
     );
   };
 
@@ -240,7 +240,7 @@ export const DynamicModuleView: React.FC = () => {
           })),
         },
       ],
-      `FUREX_${moduleMeta.id}_${todayIso()}`
+      `JESSI_${moduleMeta.id}_${todayIso()}`
     );
   };
 
@@ -257,7 +257,7 @@ export const DynamicModuleView: React.FC = () => {
         Statut: STATUS_LABELS[r.status],
         Notes: r.notes || '',
       })),
-      `FUREX_${moduleMeta.id}_${todayIso()}`
+      `JESSI_${moduleMeta.id}_${todayIso()}`
     );
     notify('Export CSV téléchargé.', 'success');
   };

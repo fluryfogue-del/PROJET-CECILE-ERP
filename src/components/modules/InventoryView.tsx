@@ -300,7 +300,7 @@ export const InventoryView: React.FC = () => {
           })),
         },
       ],
-      `Stocks_FUREX_${todayIso()}`
+      `Stocks_JESSI_${todayIso()}`
     );
     notify('Classeur Excel téléchargé.', 'success');
   };

@@ -327,7 +327,7 @@ export const HrView: React.FC = () => {
           })),
         },
       ],
-      `RH_Paie_FUREX_${todayIso()}`
+      `RH_Paie_JESSI_${todayIso()}`
     );
     notify('Classeur Excel RH téléchargé.', 'success');
   };
