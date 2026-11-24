@@ -11,7 +11,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
-import { getCatalogModule } from '../../data/moduleCatalog';
+import { getCatalogModule } from '../../catalog/moduleCatalog';
 import { createErpDoc, deleteErpDoc, logAudit, updateErpDoc } from '../../services/erpEngine';
 import { exportRowsCsv, exportWorkbookExcel, exportTablePdf } from '../../lib/exports';
 import { formatMoney, todayIso } from '../../lib/format';

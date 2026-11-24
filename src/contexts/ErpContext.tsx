@@ -9,7 +9,7 @@ import {
   subscribeDataMutation,
 } from '../lib/apiClient';
 import { getTranslations, LanguageCode } from '../i18n/translations';
-import { getCatalogModule, MODULE_CATALOG } from '../data/moduleCatalog';
+import { getCatalogModule, MODULE_CATALOG } from '../catalog/moduleCatalog';
 import {
   Account,
   AccountType,

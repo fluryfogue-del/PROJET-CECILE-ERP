@@ -32,7 +32,7 @@ import { useErp } from '../contexts/ErpContext';
 import { ModuleId } from '../types/erp';
 import { updateErpDoc } from '../services/erpEngine';
 import { formatMoney } from '../lib/format';
-import { getCatalogModule, MODULE_CATALOG } from '../data/moduleCatalog';
+import { getCatalogModule, MODULE_CATALOG } from '../catalog/moduleCatalog';
 
 interface NavItem {
   id: ModuleId;

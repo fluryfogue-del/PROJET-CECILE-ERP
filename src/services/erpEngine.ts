@@ -18,7 +18,7 @@ import {
   SupplierInvoice,
   TreasuryAccount,
 } from '../types/erp';
-import { MODULE_CATALOG } from '../data/moduleCatalog';
+import { MODULE_CATALOG } from '../catalog/moduleCatalog';
 
 export const ALL_MODULES: ModuleId[] = [
   'launcher',

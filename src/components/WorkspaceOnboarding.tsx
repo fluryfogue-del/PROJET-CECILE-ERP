@@ -15,7 +15,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useErp } from '../contexts/ErpContext';
-import { MODULE_CATALOG, MODULE_FAMILIES, MODULE_PRESETS, ModuleFamily } from '../data/moduleCatalog';
+import { MODULE_CATALOG, MODULE_FAMILIES, MODULE_PRESETS, ModuleFamily } from '../catalog/moduleCatalog';
 import { createCompanyWorkspace } from '../services/erpEngine';
 import {
   isNonEmptyText,

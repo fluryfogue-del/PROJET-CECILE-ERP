@@ -9,7 +9,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useErp } from '../../contexts/ErpContext';
-import { MODULE_CATALOG, MODULE_FAMILIES, ModuleFamily } from '../../data/moduleCatalog';
+import { MODULE_CATALOG, MODULE_FAMILIES, ModuleFamily } from '../../catalog/moduleCatalog';
 import {
   createErpDoc,
   deleteErpDoc,
